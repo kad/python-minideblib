@@ -1,0 +1,62 @@
+python-minideblib (0.6.21.7) unstable; urgency=low
+
+  * AptRepoParagraph -- more handy class to manipulate package
+    meta-information. Now it could return package files, urls to package files
+    source package name and version
+  * More functionality to AptRepoClient, almost re-written:
+    + sources/binaries now stored in dicts with key of repo base_url
+    + load_repos with alias update()
+    + get_best_binary_version()
+    + get_best_source_version()
+    + get_binary_name_version()
+    + get_source_name_version()
+    + get_available_binary_versions()
+    + get_available_source_versions()
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Sat,  8 Apr 2006 23:40:00 +0300
+
+python-minideblib (0.6.21.6) unstable; urgency=low
+
+  * Implemented AptRepoClient. Now it's possible to easily get meta data from
+    remote repositories
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Wed,  5 Apr 2006 23:57:51 +0300
+
+python-minideblib (0.6.21.5) unstable; urgency=low
+
+  * Added matchers for Maemo specific bugs and requirements
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Sun, 19 Mar 2006 22:42:11 +0200
+
+python-minideblib (0.6.21.4) unstable; urgency=low
+
+  * Handle multiple distributions in changelog parser
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 16:37:08 +0200
+
+python-minideblib (0.6.21.3) unstable; urgency=low
+
+  * New modules: DpkgVersion, DpkgChangelog, DpkgDebPackage
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 13:52:12 +0200
+
+python-minideblib (0.6.21.2) unstable; urgency=low
+
+  * GPGSigVerifier and DebianSigVerifier from upstream
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  1 Nov 2005 17:20:13 +0200
+
+python-minideblib (0.6.21.1) unstable; urgency=low
+
+  * Fix parsing control files, if commentary present in it.
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue, 11 Oct 2005 17:23:18 +0300
+
+python-minideblib (0.6.21.0) unstable; urgency=low
+
+  * Fork of 0.6.21 version of library from mini-dinstall
+  * Remove call to logging functions
+  * ChangeFile could now parses .dsc files
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  4 Oct 2005 18:01:16 +0300
+

@@ -1,0 +1,12 @@
+Source: python-minideblib
+Priority: optional
+Section: devel
+Maintainer: Alexandr Kanevskiy <packages@bih.org>
+Build-Depends-Indep: debhelper (>= 4.1.25), python
+Standards-Version: 3.6.1
+
+Package: python-minideblib
+Architecture: all
+Depends: ${python:Depends}
+Description: Small python library of classes, that simplify
+ tasks for handling Debian source and binary packages
