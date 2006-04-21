@@ -16,6 +16,7 @@ import commands
 
 from exceptions import Exception
 from minideblib.DpkgControl import DpkgParagraph
+from minideblib.DpkgVersion import DpkgVersion
 
 class DpkgDebPackageException(Exception):
     def __init__(self, msg):
@@ -211,8 +212,7 @@ class DpkgDebPackage:
             if match:
                 is_debian_changelog = 1
                 if since_version:
-                    if apt_pkg.VersionCompare(match.group('version'),
-                                              since_version) > 0:
+                    if DpkgVersion(match.group('version')) > since_version:
                         urgency = max(numeric_urgency(match.group('urgency')),
                                       urgency)
                     else:

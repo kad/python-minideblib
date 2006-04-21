@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.8) unstable; urgency=low
+
+  * Use DpkgVersion class instead of apt_pkg
+
+ -- Alexander Kanevskiy <packages@bifh.org>  Fri, 21 Apr 2006 10:40:11 +0300
+
 python-minideblib (0.6.21.7) unstable; urgency=low
 
   * AptRepoParagraph -- more handy class to manipulate package
