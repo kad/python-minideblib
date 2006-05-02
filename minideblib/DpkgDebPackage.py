@@ -132,7 +132,7 @@ class DpkgDebPackage:
             tempdir = tempfile.mktemp()
             os.mkdir(tempdir)
 
-        extract_command = 'dpkg-deb --control %s %s 2>/dev/null' % (self._path, tempdir)
+        extract_command = 'ar p %s control.tar.gz | tar zxf - -C %s 2>/dev/null' % (self._path, tempdir)
 
         os.system(extract_command)
 
@@ -146,7 +146,7 @@ class DpkgDebPackage:
             tempdir = tempfile.mktemp()
             os.mkdir(tempdir)
 
-        extract_command = 'dpkg-deb --fsys-tarfile %s |tar xf - -C %s %s 2>/dev/null' % (
+        extract_command = 'ar p %s data.tar.gz |tar zxf - -C %s %s 2>/dev/null' % (
             self._path,
             tempdir,
             ' '.join(map(lambda x: "'%s'" % x, filenames))
@@ -177,7 +177,7 @@ class DpkgDebPackage:
         return True
 
     def _list_contents(self):
-        (status, output) = commands.getstatusoutput("dpkg-deb -c %s" % self._path)
+        (status, output) = commands.getstatusoutput("ar p %s data.tar.gz | tar ztvf -" % self._path)
         if status != 0:
             return []
         files = map(lambda line: line.split(), output.splitlines())
