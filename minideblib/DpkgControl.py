@@ -62,7 +62,7 @@ class DpkgParagraph(DpkgOrderedDatalist):
                 # Skip commentaries
                 continue
             line = line[ :-1 ]
-            if line[ 0 ] != ' ':
+            if line[ 0 ] not in [' ', '\t']:
                 key, value = string.split( line, ":", 1 )
                 if value: value = value[ 1: ]
                 if not self.caseSensitive:
