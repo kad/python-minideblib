@@ -1,8 +1,19 @@
+python-minideblib (0.6.21.9) unstable; urgency=low
+
+  * New functions in AptRepoClient:
+    get_available_source_repos, get_available_binary_repos
+    get_available_sources, get_available_binaries
+  * If version is not specified for get_binary_name_version or 
+    get_source_name_version, they will return information about best available
+    package/version.
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Thu,  6 Jul 2006 18:11:21 +0300
+
 python-minideblib (0.6.21.8) unstable; urgency=low
 
   * Use DpkgVersion class instead of apt_pkg
 
- -- Alexander Kanevskiy <packages@bifh.org>  Fri, 21 Apr 2006 10:40:11 +0300
+ -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 21 Apr 2006 10:40:11 +0300
 
 python-minideblib (0.6.21.7) unstable; urgency=low
 

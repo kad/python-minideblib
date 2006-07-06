@@ -100,7 +100,7 @@ class AptRepoParagraph(DpkgParagraph):
             return (self['package'], self['version'])
         else:
             # Source: tag present. Let's deal with it
-            match = re.search(r"(?P<name>[0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)(\s+\((?P<ver>(?:[0-9]+:)?[a-zA-Z0-9.+-]+)\))?",self['source'])
+            match = re.search(r"(?P<name>[0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)(\s+\((?P<ver>(?:[0-9]+:)?[a-zA-Z0-9.+-]+)\))?", self['source'])
             if not match.group("ver"):
                 return (match.group("name"), self['version'])
             else:
@@ -175,23 +175,88 @@ class AptRepoClient:
         # Alias for above. Just to make commandline apt-get users happy
         self.load_repos(repoline, ignore_errors, clear)
 
+    def get_available_source_repos(self):
+        return self.sources.keys()
+
+    def get_available_binary_repos(self):
+        return self.binaries.keys()
+
     def get_best_binary_version(self, package, base_url = None):
         return self.__get_best_version(package, base_url, self.binaries)
 
     def get_best_source_version(self, package, base_url = None):
         return self.__get_best_version(package, base_url, self.sources)
 
-    def get_binary_name_version(self, package, version, base_url = None):
-        return self.__get_pkgs_by_name_version(package, version, base_url, self.binaries)
+    def get_binary_name_version(self, package, version = None, base_url = None):
+        """ 
+           Returns list of packages for requested name/version. 
+           If version is not specified, the best version will be choosen
+        """
+        if version is None:
+            return self.__get_pkgs_by_name_version(package, self.get_best_binary_version(package, base_url)[1], base_url, self.binaries)
+        else:
+            return self.__get_pkgs_by_name_version(package, version, base_url, self.binaries)
 
-    def get_source_name_version(self, package, version, base_url = None):
-        return self.__get_pkgs_by_name_version(package, version, base_url, self.sources)
+    def get_source_name_version(self, package, version = None, base_url = None):
+        """ 
+           Returns list of packages for requested name/version. 
+           If version is not specified, the best version will be choosen
+        """
+        if version is None:
+            return self.__get_pkgs_by_name_version(package, self.get_best_source_version(package, base_url)[1], base_url, self.sources)
+        else:
+            return self.__get_pkgs_by_name_version(package, version, base_url, self.sources)
 
     def get_available_binary_versions(self, package, base_url = None):
         return self.__get_available_versions(package, base_url, self.binaries)
 
     def get_available_source_versions(self, package, base_url = None):
         return self.__get_available_versions(package, base_url, self.sources)
+
+    def get_available_sources(self, base_url = None):
+        return self.__get_available_pkgs(base_url, self.sources)
+
+    def get_available_binaries(self, base_url = None):
+        return self.__get_available_pkgs(base_url, self.binaries)
+
+    def __get_available_pkgs(self, base_url, pkgcache):
+        if base_url:
+            if type(base_url) == types.ListType:
+                cache_keys = base_url
+            elif type(base_url) == types.StringType:
+                cache_keys = [base_url]
+            else:
+                # WTF!?
+                raise TypeError("Parameter base_url should be array of strings or string")
+        else:
+            cache_keys = pkgcache.keys()
+
+        pkg_names = [] 
+        for cache_key in cache_keys:
+            pkgs = pkgcache.get(cache_key, {})
+            pkg_names.extend(pkgs.keys())
+        return self.__unique_list(pkg_names)
+
+    def __unique_list(self, s):
+        """ remove duplicates from the list """
+        try: set
+        except NameError: from sets import Set as set
+        try:
+            return list(set(s))
+        except TypeError:
+            pass
+        t = list(s)
+        try:
+            t.sort()
+        except TypeError:
+            del t
+        else:
+            return [x for i, x in enumerate(t) if not i or x != t[i-1]]
+        u = []
+        for x in s:
+            if x not in u:
+                u.append(x)
+        return u 
 
     def __get_best_version(self, package, base_url, pkgcache):
         """
@@ -213,9 +278,9 @@ class AptRepoClient:
         best = None
         best_base_url = None
         for cache_key in cache_keys:
-            cache = pkgcache.get(cache_key,{})
+            cache = pkgcache.get(cache_key, {})
             if cache.has_key(package):
-                match = self.__pkg_best_match(package, cache[package])
+                match = self.__pkg_best_match(cache[package])
                 if match:
                     if not best:
                         best = match
@@ -248,7 +313,7 @@ class AptRepoClient:
 
         pkg_vers = [] 
         for cache_key in cache_keys:
-            cache = pkgcache.get(cache_key,{})
+            cache = pkgcache.get(cache_key, {})
             if cache.has_key(package):
                 for pkg in cache[package]:
                     if (cache_key, pkg['version']) not in pkg_vers:
@@ -273,14 +338,14 @@ class AptRepoClient:
 
         # Go trough all base_url keys
         for cache_key in cache_keys:
-            cache = pkgcache.get(cache_key,{})
+            cache = pkgcache.get(cache_key, {})
             if cache.has_key(package):
                 for pkg in cache[package]:
                     if pkg['version'] == version:
                         pkgs.append(pkg)
         return pkgs
 
-    def __pkg_best_match(self, package, cache):
+    def __pkg_best_match(self, cache):
         """ Looks for best version available """
         if len(cache) == 0:
             # WTF!?
