@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.12) unstable; urgency=low
+
+  * Fix for getting information about unknown packages
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 15:37:08 +0300
+
 python-minideblib (0.6.21.11) unstable; urgency=low
 
   * Correctly compare version as DpkgVersion object, not as a strings

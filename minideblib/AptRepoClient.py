@@ -336,7 +336,7 @@ class AptRepoClient:
         else:
             cache_keys = pkgcache.keys()
 
-        if not isinstance(version, DpkgVersion):
+        if version is not None and not isinstance(version, DpkgVersion):
             version = DpkgVersion(version)
 
         # Go trough all base_url keys
@@ -344,7 +344,7 @@ class AptRepoClient:
             cache = pkgcache.get(cache_key, {})
             if cache.has_key(package):
                 for pkg in cache[package]:
-                    if DpkgVersion(pkg['version']) == version:
+                    if version is not None and DpkgVersion(pkg['version']) == version:
                         pkgs.append(pkg)
         return pkgs
 
