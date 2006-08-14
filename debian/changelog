@@ -1,3 +1,16 @@
+python-minideblib (0.6.21.11) unstable; urgency=low
+
+  * Correctly compare version as DpkgVersion object, not as a strings
+  * Workarround in DpkgVersion for braindead maintainers
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 12:00:22 +0300
+
+python-minideblib (0.6.21.10) unstable; urgency=low
+
+  * extract_contents() is now public in DpkgDebPackage
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 10 Jul 2006 12:38:18 +0300
+
 python-minideblib (0.6.21.9) unstable; urgency=low
 
   * New functions in AptRepoClient:

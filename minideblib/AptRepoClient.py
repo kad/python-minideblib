@@ -336,12 +336,15 @@ class AptRepoClient:
         else:
             cache_keys = pkgcache.keys()
 
+        if not isinstance(version, DpkgVersion):
+            version = DpkgVersion(version)
+
         # Go trough all base_url keys
         for cache_key in cache_keys:
             cache = pkgcache.get(cache_key, {})
             if cache.has_key(package):
                 for pkg in cache[package]:
-                    if pkg['version'] == version:
+                    if DpkgVersion(pkg['version']) == version:
                         pkgs.append(pkg)
         return pkgs
 
@@ -350,13 +353,12 @@ class AptRepoClient:
         if len(cache) == 0:
             # WTF!?
             return None
-        if len(cache) == 1:
-            return cache[0]['version']
         best = DpkgVersion(cache[0]['version'])
-        for pkg in cache:
-            pkg_ver = DpkgVersion(pkg['version'])
-            if pkg_ver > best:
-                best = pkg_ver
+        if len(cache) > 1:
+            for pkg in cache:
+                pkg_ver = DpkgVersion(pkg['version'])
+                if pkg_ver > best:
+                    best = pkg_ver
         return best 
 
     def __make_repos(self, repos = None, clear = True):

@@ -47,7 +47,7 @@ class DpkgVersion(object):
 
     def __init__(self, ver):
         """Parse a string or number into the three components."""
-        self.epoch = 0
+        self.epoch = None
         self.upstream = None
         self.revision = None
 
@@ -82,7 +82,8 @@ class DpkgVersion(object):
         if not valid_upstream.search(self.upstream):
             raise BadUpstreamError, "Bad upstream version format"
 
-        self.epoch = int(self.epoch)
+        if self.epoch is not None:
+            self.epoch = int(self.epoch)
 
     def getWithoutEpoch(self):
         """Return the version without the epoch."""
@@ -96,7 +97,7 @@ class DpkgVersion(object):
     def __str__(self):
         """Return the class as a string for printing."""
         str = ""
-        if self.epoch > 0:
+        if self.epoch is not None:
             str += "%d:" % (self.epoch,)
         str += self.upstream
         if self.revision is not None:
@@ -105,7 +106,7 @@ class DpkgVersion(object):
 
     def __repr__(self):
         """Return a debugging representation of the object."""
-        return "<%s epoch: %d, upstream: %r, revision: %r>" \
+        return "<%s epoch: %r, upstream: %r, revision: %r>" \
                % (self.__class__.__name__, self.epoch,
                   self.upstream, self.revision)
 
@@ -113,8 +114,17 @@ class DpkgVersion(object):
         """Compare two Version classes."""
         other = DpkgVersion(other)
 
-        result = cmp(self.epoch, other.epoch)
-        if result != 0: return result
+        # Compare epochs only if they are not equal.
+        if self.epoch != other.epoch:
+            # Special cases for braindead packages
+            sepoch = self.epoch
+            oepoch = other.epoch
+            if sepoch is None:
+                sepoch = 0
+            if oepoch is None:
+                oepoch = 0
+            result = cmp(sepoch, oepoch)
+            if result != 0: return result
 
         result = deb_cmp(self.upstream, other.upstream)
         if result != 0: return result

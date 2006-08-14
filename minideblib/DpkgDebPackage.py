@@ -3,18 +3,16 @@
 # $Id$
 # Copyright (C) 2005, 2006 Alexandr Kanevskiy <packages@bifh.org>
 
+__revision__ = "r"+"$Revision$"[11:-2]
 
 import os
 import re
-import string
 import glob
 import shutil
 import gzip 
-import cStringIO
 import tempfile
 import commands
 
-from exceptions import Exception
 from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgVersion import DpkgVersion
 
@@ -27,7 +25,7 @@ class DpkgDebPackageException(Exception):
 
 class DpkgDebPackage:
     """This class represent complete information about Debian binary package"""
-    def __init__(self, file=None):
+    def __init__(self, pkgfile=None):
         """ path -- path to .deb package """
         self.control = DpkgParagraph()
         self.md5sums = []
@@ -36,9 +34,9 @@ class DpkgDebPackage:
         self.news = None
         self.files = None
         self._raw_files = None
-        if file:
-            self._path = file
-            self.path = os.path.abspath(file)
+        if pkgfile:
+            self._path = pkgfile
+            self.path = os.path.abspath(pkgfile)
             self.load_control()
        
     def load(self, path, getfiles=True, getchanges='both'):
@@ -73,7 +71,7 @@ class DpkgDebPackage:
     def load_control(self):
         """ Reads control information into memory """
         if self._path:
-            tempdir = self._extract_control()
+            tempdir = self.__extract_control()
             fh = open(os.path.join(tempdir,"control"),"r")
             self.control.load(fh)
             if not self._parse_md5sums(tempdir):
@@ -91,9 +89,9 @@ class DpkgDebPackage:
         If since_version is specified, only return entries later than the specified version.
         returns a sequence of Changes objects.'''
 
-        news_filenames = self._changelog_variations('NEWS.Debian')
-        changelog_filenames = self._changelog_variations('changelog.Debian')
-        changelog_filenames_native = self._changelog_variations('changelog')
+        news_filenames = self.__changelog_variations('NEWS.Debian')
+        changelog_filenames = self.__changelog_variations('changelog.Debian')
+        changelog_filenames_native = self.__changelog_variations('changelog')
 
         filenames = []
         if which == 'both' or which == 'news':
@@ -102,11 +100,11 @@ class DpkgDebPackage:
             filenames.extend(changelog_filenames)
             filenames.extend(changelog_filenames_native)
 
-        tempdir = self._extract_contents(filenames)
+        tempdir = self.extract_contents(filenames)
 
         news = None
         for filename in news_filenames:
-            news = self._read_changelog(os.path.join(tempdir,filename),
+            news = self._read_changelog(os.path.join(tempdir, filename),
                                        since_version)
             if news:
                 break
@@ -114,7 +112,7 @@ class DpkgDebPackage:
         changelog = None
         for batch in (changelog_filenames, changelog_filenames_native):
             for filename in batch:
-                changelog = self._read_changelog(os.path.join(tempdir,filename),
+                changelog = self._read_changelog(os.path.join(tempdir, filename),
                                                 since_version)
                 if changelog:
                     break
@@ -125,7 +123,7 @@ class DpkgDebPackage:
 
         return (news, changelog)
 
-    def _extract_control(self):
+    def __extract_control(self):
         try:
             tempdir = tempfile.mkdtemp(prefix='dpkgdebpackage')
         except AttributeError:
@@ -138,7 +136,7 @@ class DpkgDebPackage:
 
         return tempdir
 
-    def _extract_contents(self, filenames):
+    def extract_contents(self, filenames):
         """Extracts partial contents of Debian package to temporary directory"""
         try:
             tempdir = tempfile.mkdtemp(prefix='dpkgdebpackage')
@@ -171,7 +169,7 @@ class DpkgDebPackage:
                 # Something bad happend, unknown file format.
                 fh.close()
                 return False
-            ar = [line[:32].strip(),line[34:].strip()]
+            ar = [line[:32].strip(), line[34:].strip()]
             self.md5sums.append(ar)
         fh.close()
         return True
@@ -204,7 +202,6 @@ class DpkgDebPackage:
         if not fd:
             return None
 
-        #urgency = numeric_urgency('low')
         changes = ''
         is_debian_changelog = 0
         for line in fd.readlines():
@@ -212,10 +209,7 @@ class DpkgDebPackage:
             if match:
                 is_debian_changelog = 1
                 if since_version:
-                    if DpkgVersion(match.group('version')) > since_version:
-                        urgency = max(numeric_urgency(match.group('urgency')),
-                                      urgency)
-                    else:
+                    if DpkgVersion(match.group('version')) <= since_version:
                         break
             changes += line
 
@@ -225,7 +219,7 @@ class DpkgDebPackage:
         return changes
 
 
-    def _changelog_variations(self,filename):
+    def __changelog_variations(self, filename):
         formats = ['usr/doc/*/%s.gz',
                    'usr/share/doc/*/%s.gz',
                    'usr/doc/*/%s',
