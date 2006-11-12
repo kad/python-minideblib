@@ -1,15 +1,17 @@
 #!/usr/bin/python -tt
 # vim: sw=4 ts=4 expandtab ai
 # $Id$
-# Copyright (C) 2005,2006 Alexander Kanevskiy <packages@bifh.org>
+# Copyright (C) 2005,2006 Alexandr Kanevskiy <packages@bifh.org>
 
 import re
 from minideblib import DpkgVersion
-from exceptions import Exception
 import types
-import string
 import rfc822
 import cStringIO as StringIO
+
+__all__ = ['DpkgChangelog', 'DpkgChangelogEntry', 'DpkgChangelogException']
+__revision__ = "r"+"$Revision$"[11:-2]
+
 
 class DpkgChangelogException(Exception):
     def __init__(self, msg):
@@ -25,11 +27,12 @@ VersionRegex    = "(?:[0-9]+:)?[a-zA-Z0-9.+-]+" # Regular expression package ver
 # Regular expressions for various bits of the syntax used
 ClosesRegex     = "closes:\s*(?:bug)?#?\s?\d+(?:,\s?(?:bug)?#?\s?\d+)*"
 NBugRegex       = "Fixe[sd]:\s*NB#\d+(?:\s*,\s*NB#\d+)*"
-MBugRegex       = "Fixe[sd]:\s*MB#\d+(?:\s*,\s*NB#\d+)*"
+MBugRegex       = "Fixe[sd]:\s*MB#\d+(?:\s*,\s*MB#\d+)*"
 BugRegex        = "(\d+)"
 NMBugRegex      = "B#(\d+)"
 NReqImplRegex   = "Implemented:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
 NReqUpdRegex    = "Updated:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
+NReqPartRegex   = "Partial:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
 NReqRegex       = "R#(\d{1,6})"
 
 # Precompile the regular expressions
@@ -40,6 +43,7 @@ NBugMatcher      = re.compile(NBugRegex, re.IGNORECASE)
 MBugMatcher      = re.compile(MBugRegex, re.IGNORECASE)
 NReqImplMatcher  = re.compile(NReqImplRegex, re.IGNORECASE)
 NReqUpdMatcher   = re.compile(NReqUpdRegex, re.IGNORECASE)
+NReqPartMatcher  = re.compile(NReqPartRegex, re.IGNORECASE)
 NReqMatcher      = re.compile(NReqRegex)
 
 
@@ -62,19 +66,20 @@ class DpkgChangelogEntry:
     date member.'''
 
     def __init__(self):
-        self.package=""
-        self.version=""
-        self.distribution=""
-        self.date=None
-        self.strdate=""
-        self.changedby=""
-        self.bugsfixed=[]
-        self.nbugsfixed=[]
-        self.mbugsfixed=[]
-        self.nreqsimplemented=[]
-        self.nreqsupdated=[]
-        self.attributes={}
-        self.entries=[]
+        self.package = ""
+        self.version = ""
+        self.distribution = None
+        self.date = None
+        self.strdate = ""
+        self.changedby = ""
+        self.bugsfixed = []
+        self.nbugsfixed = []
+        self.mbugsfixed = []
+        self.nreqsimplemented = []
+        self.nreqsupdated = []
+        self.nreqspartial = []
+        self.attributes = {}
+        self.entries = []
 
     def add_entry(self, entry):
         '''Utility function to add a changelog entry. Also takes care
@@ -82,26 +87,30 @@ class DpkgChangelogEntry:
         the self.bugsfixed array.'''
 
         # Check if we have a proper Closes command
-        m=ClosesMatcher.search(entry)
-        if m:
-            self.bugsfixed.extend(BugMatcher.findall(m.group(0)))
+        match = ClosesMatcher.search(entry)
+        if match:
+            self.bugsfixed.extend(BugMatcher.findall(match.group(0)))
         # Check if we have a proper NBugs
-        m=NBugMatcher.search(entry)
-        if m:
-            self.nbugsfixed.extend(NMBugMatcher.findall(m.group(0)))
+        match = NBugMatcher.search(entry)
+        if match:
+            self.nbugsfixed.extend(NMBugMatcher.findall(match.group(0)))
         # Check if we have a proper MBugs
-        m=MBugMatcher.search(entry)
-        if m:
-            self.mbugsfixed.extend(NMBugMatcher.findall(m.group(0)))
-        self.entries.append(entry)
+        match = MBugMatcher.search(entry)
+        if match:
+            self.mbugsfixed.extend(NMBugMatcher.findall(match.group(0)))
         # Check if we have implemented requirements
-        m=NReqImplMatcher.search(entry)
-        if m:
-            self.nreqsimplemented.extend(NReqMatcher.findall(m.group(0)))
+        match = NReqImplMatcher.search(entry)
+        if match:
+            self.nreqsimplemented.extend(NReqMatcher.findall(match.group(0)))
         # Check if we have updated requirements
-        m=NReqUpdMatcher.search(entry)
-        if m:
-            self.nreqsupdated.extend(NReqMatcher.findall(m.group(0)))
+        match = NReqUpdMatcher.search(entry)
+        if match:
+            self.nreqsupdated.extend(NReqMatcher.findall(match.group(0)))
+        # Check if we have partially implemented requirements
+        match = NReqPartMatcher.search(entry)
+        if match:
+            self.nreqspartial.extend(NReqMatcher.findall(match.group(0)))
+        self.entries.append(entry)
 
 
 class DpkgChangelog:
@@ -109,66 +118,82 @@ class DpkgChangelog:
     def __init__(self):
         self.entries = []
         self.lineno = 0
-
-    def __get_next_nonempty_line(self,file):
+        self.package = None
+        self.version = None
+        self.distribution = None
+        self.changedby = None
+ 
+    def __get_next_nonempty_line(self, infile):
         "Return the next line that is not empty"
         self.lineno += 1
-        line=file.readline()
-        while not string.strip(line):
-            self.lineno +=1
-            line=file.readline()
+        line = infile.readline()
+        while not line.strip():
+            self.lineno += 1
+            line = infile.readline()
             if line == '':
                 return ''
-        if line[-1]=="\n":
+        if line[-1] == "\n":
             return line[:-1]
         else:
             return line
 
-    def _parse_one_entry(self, file):
+    def _parse_one_entry(self, infile):
 
-        line=self.__get_next_nonempty_line(file)
-        m=StartMatcher.match(line)
-        if not m:
-                raise DpkgChangelogException, "Invalid first line"
+        line = self.__get_next_nonempty_line(infile)
+        match = StartMatcher.match(line)
+        if not match:
+            raise DpkgChangelogException, "Invalid first line"
 
-        entry=DpkgChangelogEntry()
-        entry.package=m.group("package")
+        entry = DpkgChangelogEntry()
+        entry.package = match.group("package")
         try:
-                entry.version=DpkgVersion.DpkgVersion(m.group("version"))
+            entry.version = DpkgVersion.DpkgVersion(match.group("version"))
         except Exception, e:
-                raise DpkgChangelogException, "Invalid version: %s" % e
+            raise DpkgChangelogException, "Invalid version: %s" % e
 
-        entry.distribution=string.split(m.group("distribution"))
+        entry.distribution = match.group("distribution").split()
 
         # Extract the attributes from the line
-        for attr in string.split(m.group("attrs")):
-                am=AttrMatcher.match(attr)
-                if not am:
-                        raise DpkgChangelogException, "Invalid syntax for attribute"
-                entry.attributes[am.group("key")]=am.group("value")
+        for attr in match.group("attrs").split():
+            am = AttrMatcher.match(attr)
+            if not am:
+                raise DpkgChangelogException, "Invalid syntax for attribute"
+            entry.attributes[am.group("key")] = am.group("value")
 
         # Check for essential urgency attribute
         if not entry.attributes.has_key("urgency"):
-                raise DpkgChangelogException, "Missing urgency attribute"
+            raise DpkgChangelogException, "Missing urgency attribute"
 
         # Read the changelog entries themselves
-        line=self.__get_next_nonempty_line(file)
-        while line[0:2]=="  ":
-                entry.add_entry(line[2:])
-                line=self.__get_next_nonempty_line(file)
+        line = self.__get_next_nonempty_line(infile)
+        buf = ""
+        while line.startswith("  "):
+            if line.startswith("  *"):
+                if buf:
+                    entry.add_entry(buf.strip())
+                buf = line[2:]
+            else:
+                buf += "\n" + line[2:]
+            line = self.__get_next_nonempty_line(infile)
+
+        # Commit last seen line
+        if buf:
+            entry.add_entry(buf.strip())
+            
 
         # Try and parse the last line
-        em=EndMatcher.match(line)
+        em = EndMatcher.match(line)
         if not em:
-                raise DpkgChangelogException, "Invalid line in changelog entry"
+            raise DpkgChangelogException, "Invalid line in changelog entry"
 
-        entry.changedby=em.group("changedby")
+        entry.changedby = em.group("changedby")
         try:
-                entry.strdate=em.group("date")
-                entry.date=rfc822.parsedate(entry.strdate)
+            entry.strdate = em.group("date")
+            entry.date = rfc822.parsedate(entry.strdate)
+            if not entry.date:
+                raise DpkgChangelogException, "Invalid date in changelog entry: %s" % entry.strdate
         except:
-                # TODO: extract error from date exception and add info to our exception
-                raise DpkgChangelogException, "Invalid date in changelog entry"
+            raise DpkgChangelogException, "Invalid date in changelog entry: %s" % entry.strdate
 
         # Return the parsed changelog entry
         return entry
