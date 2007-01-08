@@ -1,4 +1,5 @@
 #!/usr/bin/python -tt
+# -*- coding: UTF-8 -*-
 # vim: sw=4 ts=4 expandtab ai
 #
 # DpkgDebPackage.py
@@ -26,6 +27,7 @@
 # $Id$
 
 __revision__ = "r"+"$Revision$"[11:-2]
+__all__ = [ 'DpkgDebPackage', 'DpkgDebPackageException' ]
 
 import os
 import re

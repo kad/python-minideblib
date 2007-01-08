@@ -1,11 +1,12 @@
 #!/usr/bin/python -tt
+# -*- coding: UTF-8 -*-
 # vim: sw=4 ts=4 expandtab ai
 #
 # AptRepoClient.py
 #
-# This module implements APT repo metadata parsing.
+# This module implements class for access APT repository metadata.
 #
-# Copyright (C) 2006 Alexandr Kanevskiy
+# Copyright (C) 2006,2007 Alexandr Kanevskiy
 #
 # Contact: Alexandr Kanevskiy <packages@bifh.org>
 #
@@ -26,6 +27,7 @@
 # $Id$
 
 __revision__ = "r"+"$Revision$"[11:-2]
+__all__ = [ 'AptRepoClient', 'AptRepoException' ]
 
 from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgDatalist import DpkgOrderedDatalist
@@ -33,6 +35,7 @@ from minideblib.DpkgVersion import DpkgVersion
 import re, urllib2, os, types
 
 class AptRepoException(Exception):
+    """Exception generated in error situations"""
     def __init__(self, msg):
         Exception.__init__(self)
         self.msg = msg
@@ -43,20 +46,26 @@ class AptRepoException(Exception):
 
 
 class AptRepoParagraph(DpkgParagraph):
-    def __init__(self, fn="", base_url=None):
-        DpkgParagraph.__init__(self, fn)
+    """Like DpkgParagraph, but can return urls to packages and can return correct source package name/version for binaries"""
+    def __init__(self, fname="", base_url=None):
+        DpkgParagraph.__init__(self, fname)
         self.base_url = base_url
+
+    def __hash__(self):
+        """Make this object hashable"""
+        return hash( (self.get("package", None), self.get("version", None)) )
 
     def set_base_url(self, base_url):
+        """Sets base url for this package. Used later to calculate relative paths"""
         self.base_url = base_url
 
-    # Like DpkgParagraph, but could return files section like in dsc/changes
     def get_files(self):
+        """Return list of files in this package. Format similar to .changes files section"""
         try:
             files = self['files']
         except KeyError:
             # Binary package ?
-            if self.has_key("filename"):
+            if "filename" in self:
                 return [(self['md5sum'], self['size'], None, None, self['filename'])]
             else:
                 # Something wrong
@@ -80,9 +89,9 @@ class AptRepoParagraph(DpkgParagraph):
 
     def get_urls(self):
         """Return array of URLs to package files"""
-        if self.has_key("filename"):
+        if "filename" in self:
             return [os.path.join(self.base_url, self['filename'])]
-        if self.has_key("files"):
+        if "files" in self:
             urls = []
             for elems in self.get_files():
                 urls.append(os.path.join(self.base_url, self['directory'], elems[4]))
@@ -90,11 +99,11 @@ class AptRepoParagraph(DpkgParagraph):
 
     def get_source(self):
         """ Return tuple (name, version) for sources of this package """
-        if self.has_key("files"):
+        if "files" in self:
             # It's source itself, stupid people
             return (self['package'], self['version'])
         # Ok, it's binary. Let's analize some situations
-        if not self.has_key("source"):
+        if "source" not in self:
             # source name the same as package
             return (self['package'], self['version'])
         else:
@@ -120,30 +129,31 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
     def set_case_sensitive(self, value):
         self.case_sensitive = value
 
-    def __load_one(self, f, base_url):
-        p = AptRepoParagraph(None, base_url=base_url)
-        p.setCaseSensitive(self.case_sensitive)
-        p.load( f )
-        return p
+    def __load_one(self, in_file, base_url):
+        """Load meta-information for one package"""
+        para = AptRepoParagraph(None, base_url=base_url)
+        para.setCaseSensitive(self.case_sensitive)
+        para.load( in_file )
+        return para
 
     def load(self, inf, base_url=None):
+        """Load packages meta-information to internal data structures"""
         if base_url is None:
             base_url = self.base_url
         while 1:
             para = self.__load_one(inf, base_url)
             if not para: 
                 break
-            if not self.has_key(para[self.key]):
+            if para[self.key] not in self:
                 self[para[self.key]] = []
             self[para[self.key]].append(para)
 
     def _store(self, ofl):
-        "Write our control data to a file object"
+        """Write our control data to a file object"""
         for key in self.keys():
-            for em in self[key]:
-                em._store(ofl)
+            for elem in self[key]:
+                elem._store(ofl)
                 ofl.write("\n")
-
 
 
 class AptRepoClient:
@@ -161,6 +171,7 @@ class AptRepoClient:
             self.__make_repos(repos)
 
     def load_repos(self, repoline = None, ignore_errors = True, clear = True):
+        """Loads repositories into internal data structures. Replaces previous content if clear = True (default)"""
         if clear:
             self.sources = {}
             self.binaries = {}
@@ -170,20 +181,23 @@ class AptRepoClient:
         for url in self._repos:
             self.__load_one_repo(url, ignore_errors)
 
-    def update(self, repoline = None, ignore_errors = True, clear = True):
-        # Alias for above. Just to make commandline apt-get users happy
-        self.load_repos(repoline, ignore_errors, clear)
+    # Alias for load_repos(). Just to make commandline apt-get users happy
+    update = load_repos
 
     def get_available_source_repos(self):
+        """Lists known source repositories. Format is [ (base_url, distribution, section), ... ]"""
         return self.sources.keys()
 
     def get_available_binary_repos(self):
+        """Lists known binary repositories. Format is [ (base_url, distribution, section), ... ]"""
         return self.binaries.keys()
 
     def get_best_binary_version(self, package, base_url = None):
+        """Return exact repository and best available version for binary package"""
         return self.__get_best_version(package, base_url, self.binaries)
 
     def get_best_source_version(self, package, base_url = None):
+        """Return exact repository and best available version for source package"""
         return self.__get_best_version(package, base_url, self.sources)
 
     def get_binary_name_version(self, package, version = None, base_url = None):
@@ -223,10 +237,12 @@ class AptRepoClient:
             if type(base_url) == types.ListType:
                 cache_keys = base_url
             elif type(base_url) == types.StringType:
+                cache_keys = [ (base_url, "/", None) ]
+            elif type(base_url) == types.TupleType:
                 cache_keys = [base_url]
             else:
                 # WTF!?
-                raise TypeError("Parameter base_url should be array of strings or string")
+                raise TypeError("Parameter base_url should be array of strings or string or tuple")
         else:
             cache_keys = pkgcache.keys()
 
@@ -236,26 +252,29 @@ class AptRepoClient:
             pkg_names.extend(pkgs.keys())
         return self.__unique_list(pkg_names)
 
-    def __unique_list(self, s):
+    def __unique_list(self, orig_list):
         """ remove duplicates from the list """
-        try: set
-        except NameError: from sets import Set as set
+        try: 
+            set
+        except NameError: 
+            from sets import Set as set
         try:
-            return list(set(s))
+            return list(set(orig_list))
         except TypeError:
+            # let's try another algorithm
             pass
-        t = list(s)
+        temp_list = list(orig_list)
         try:
-            t.sort()
+            temp_list.sort()
         except TypeError:
-            del t
+            del temp_list
         else:
-            return [x for i, x in enumerate(t) if not i or x != t[i-1]]
-        u = []
-        for x in s:
-            if x not in u:
-                u.append(x)
-        return u 
+            return [elem for i, elem in enumerate(temp_list) if not i or elem != temp_list[i-1]]
+        uniq_list = []
+        for elem in orig_list:
+            if elem not in uniq_list:
+                uniq_list.append(elem)
+        return uniq_list
 
     def __get_best_version(self, package, base_url, pkgcache):
         """
@@ -266,6 +285,8 @@ class AptRepoClient:
             if type(base_url) == types.ListType:
                 cache_keys = base_url
             elif type(base_url) == types.StringType:
+                cache_keys = [ (base_url, "/", None) ]
+            elif type(base_url) == types.TupleType:
                 cache_keys = [base_url]
             else:
                 # WTF!?
@@ -278,7 +299,7 @@ class AptRepoClient:
         best_base_url = None
         for cache_key in cache_keys:
             cache = pkgcache.get(cache_key, {})
-            if cache.has_key(package):
+            if package in cache:
                 match = self.__pkg_best_match(cache[package])
                 if match:
                     if not best:
@@ -303,6 +324,8 @@ class AptRepoClient:
             if type(base_url) == types.ListType:
                 cache_keys = base_url
             elif type(base_url) == types.StringType:
+                cache_keys = [ (base_url, "/", None) ]
+            elif type(base_url) == types.TupleType:
                 cache_keys = [base_url]
             else:
                 # WTF!?
@@ -313,7 +336,7 @@ class AptRepoClient:
         pkg_vers = [] 
         for cache_key in cache_keys:
             cache = pkgcache.get(cache_key, {})
-            if cache.has_key(package):
+            if package in cache:
                 for pkg in cache[package]:
                     if (cache_key, pkg['version']) not in pkg_vers:
                         pkg_vers.append((cache_key, pkg['version']))
@@ -328,6 +351,8 @@ class AptRepoClient:
             if type(base_url) == types.ListType:
                 cache_keys = base_url
             elif type(base_url) == types.StringType:
+                cache_keys = [ (base_url, "/", None) ]
+            elif type(base_url) == types.TupleType:
                 cache_keys = [base_url]
             else:
                 # WTF!?
@@ -341,7 +366,7 @@ class AptRepoClient:
         # Go trough all base_url keys
         for cache_key in cache_keys:
             cache = pkgcache.get(cache_key, {})
-            if cache.has_key(package):
+            if package in cache:
                 for pkg in cache[package]:
                     if version is not None and DpkgVersion(pkg['version']) == version:
                         pkgs.append(pkg)
@@ -361,56 +386,81 @@ class AptRepoClient:
         return best 
 
     def __make_repos(self, repos = None, clear = True):
+        """ Update available repositories array """
+        def filter_repolines(repolines):
+            """Return filtered list of repos after removing comments and whitespace"""
+            def filter_repoline(repoline):
+                """ Get rid of all comments and whitespace """
+                repos = repoline.split("#")[0].strip()
+                return (repos and [repos] or [None])[0]
+            temp = []
+            for line in repolines:
+                repoline = filter_repoline(line)
+                if repoline:
+                    temp.append(repoline)
+            return temp
         if clear:
             self._repos = []
         if type(repos) == types.ListType:
-            self._repos += repos
+            self._repos += filter_repolines(repos)
         elif type(repos) == types.StringType:
-            lines = repos.splitlines()
-            if len(lines) < 2:
-                self._repos.append(repos)
-            else:
-                self._repos += lines
+            self._repos += filter_repolines(repos.splitlines())
 
     def __load_one_repo(self, repo, ignore_errors = True):
         """Should load data from remote repository. Format the same as sources.list"""
 
+        def __universal_urlopen(url):
+            """More robust urlopen. It understands gzip transfer encoding"""
+            request = urllib2.Request(url)
+            request.add_header("Accept-encoding", "gzip")
+            usock = urllib2.urlopen(request)
+            if usock.headers.get('content-encoding', None) == 'gzip' or url.endswith(".gz"):
+                data = usock.read()
+                import cStringIO, gzip
+                data = gzip.GzipFile(fileobj=cStringIO.StringIO(data)).read()
+                return cStringIO.StringIO(data)
+            else:
+                return usock
+
         (base_url, url_srcs, url_bins) = self.__make_urls(repo)
         if url_srcs:
-            repourls = url_srcs
-            if not self.sources.has_key(base_url):
-                self.sources[base_url] = AptRepoMetadataBase(base_url)
-            dest = self.sources[base_url]
+            repourls = url_srcs 
+            dest_dict = self.sources
         elif url_bins:
             repourls = url_bins
-            if not self.binaries.has_key(base_url):
-                self.binaries[base_url] = AptRepoMetadataBase(base_url)
-            dest = self.binaries[base_url]
+            dest_dict = self.binaries
         else:
             # Something wrong ?
             raise AptRepoException("WTF?!")
         
-        for url in repourls:
+        for (url, distro, section) in repourls:
+            if (base_url, distro, section) not in dest_dict:
+                dest_dict[(base_url, distro, section)] = AptRepoMetadataBase(base_url)
+            dest = dest_dict[(base_url, distro, section)]
+        
             # Let's check .gz variant first
             try:
-                fl = self.__universal_urlopen(url+".gz")
+                fls = __universal_urlopen(url+".gz")
             except urllib2.HTTPError, hte:
                 if hte.code == 404:
                     # If no Packages/Sources.gz found, let's try just Packages/Sources
                     try:
-                        fl = self.__universal_urlopen(url)
-                    except urllib2.HTTPError, hte1:
-                        if hte1.code == 404:
+                        fls = __universal_urlopen(url)
+                    except urllib2.HTTPError, hte:
+                        if hte.code == 404:
                             if ignore_errors:
                                 continue
                             else:
-                                raise hte1
+                                raise
                         else:
-                            raise hte1
+                            raise
                 else:
-                    raise hte
+                    raise
             #st=time.time()
-            dest.load(fl, base_url)
+            dest.load(fls, base_url)
+            # Close socket after use
+            fls.close()
+            del fls
             #print "%s: %f secs" % (url, time.time()-st)
 
     def __make_urls(self, repoline):
@@ -424,34 +474,24 @@ class AptRepoClient:
         repo_type = match.group("repo_type")
         if match.group("repo").endswith("/") and not match.group("sections"):
             if repo_type == "deb":
-                url_bins = [ os.path.join(match.group("base_url"),"Packages") ]
+                __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Packages"))
+                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), None) ]
             elif repo_type == "deb-src":
-                url_srcs = [ os.path.join(match.group("base_url"),"Sources") ]
+                __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Sources"))
+                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), None ) ]
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         else:
             if repo_type == "deb":
                 for item in match.group("sections").split():
                     for arch in self._arch:
-                        url_bins.append(os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "binary-%s/Packages" % arch))
+                        url_bins.append( (os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "binary-%s/Packages" % arch), match.group("repo"), item))
             elif repo_type == "deb-src":
                 for item in match.group("sections").split():
-                    url_srcs.append(os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "source/Sources"))
+                    url_srcs.append( (os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "source/Sources"), match.group("repo"), item))
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         return (match.group("base_url"), url_srcs, url_bins)
-
-    def __universal_urlopen(self, url):
-        request = urllib2.Request(url)
-        request.add_header("Accept-encoding", "gzip")
-        usock = urllib2.urlopen(request)
-        if usock.headers.get('content-encoding', None) == 'gzip' or url.endswith(".gz"):
-            data = usock.read()
-            import cStringIO, gzip
-            data = gzip.GzipFile(fileobj=cStringIO.StringIO(data)).read()
-            return cStringIO.StringIO(data)
-        else:
-            return usock
 
 if __name__ == "__main__":
     import sys
