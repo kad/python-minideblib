@@ -233,66 +233,50 @@ class AptRepoClient:
         return self.__get_available_pkgs(base_url, self.binaries)
 
     def __get_available_pkgs(self, base_url, pkgcache):
+        cache_keys = self.__filter_base_urls(base_url, pkgcache)
+        try: 
+            set
+        except NameError: 
+            from sets import Set as set
+        pkg_names = set() 
+        for cache_key in cache_keys:
+            pkgs = pkgcache.get(cache_key, {})
+            pkg_names.update(pkgs.keys())
+        return list(pkg_names)
+    
+    def __filter_base_urls(self, base_url, pkgcache):
+        """Return list of keys to be used in pkgcache lookup according to requested base_keys"""
         if base_url:
             if type(base_url) == types.ListType:
                 cache_keys = base_url
             elif type(base_url) == types.StringType:
-                cache_keys = [ (base_url, "/", None) ]
+                cache_keys = [ (base_url, "/", '') ]
             elif type(base_url) == types.TupleType:
                 cache_keys = [base_url]
             else:
                 # WTF!?
                 raise TypeError("Parameter base_url should be array of strings or string or tuple")
+            # Ok, we have list of keys, let's compare them
+            try:
+                set
+            except NameError:
+                from sets import Set as set
+            rkeys = set()
+            pckeys = pkgcache.keys()
+            for ckey in cache_keys:
+                if type(ckey) != types.TupleType and len(ckey) != 3:
+                    raise TypeError("base_url key should be a tuple -> (url, distribution, section): %s" % str(ckey))
+                rkeys.update([akey for akey in pckeys if (ckey[0] is None or ckey[0] == akey[0]) and (ckey[1] is None or ckey[1] == akey[1]) and (ckey[2] is None or ckey[2] == akey[2])])
+            return list(rkeys) 
         else:
-            cache_keys = pkgcache.keys()
-
-        pkg_names = [] 
-        for cache_key in cache_keys:
-            pkgs = pkgcache.get(cache_key, {})
-            pkg_names.extend(pkgs.keys())
-        return self.__unique_list(pkg_names)
-
-    def __unique_list(self, orig_list):
-        """ remove duplicates from the list """
-        try: 
-            set
-        except NameError: 
-            from sets import Set as set
-        try:
-            return list(set(orig_list))
-        except TypeError:
-            # let's try another algorithm
-            pass
-        temp_list = list(orig_list)
-        try:
-            temp_list.sort()
-        except TypeError:
-            del temp_list
-        else:
-            return [elem for i, elem in enumerate(temp_list) if not i or elem != temp_list[i-1]]
-        uniq_list = []
-        for elem in orig_list:
-            if elem not in uniq_list:
-                uniq_list.append(elem)
-        return uniq_list
+            return pkgcache.keys()
 
     def __get_best_version(self, package, base_url, pkgcache):
         """
             Should return touple (base_url,package_version) with the best version found in cache.
             If base_url is not specified, all repositories will be checked
         """
-        if base_url:
-            if type(base_url) == types.ListType:
-                cache_keys = base_url
-            elif type(base_url) == types.StringType:
-                cache_keys = [ (base_url, "/", None) ]
-            elif type(base_url) == types.TupleType:
-                cache_keys = [base_url]
-            else:
-                # WTF!?
-                raise TypeError("Parameter base_url should be array of strings or string")
-        else:
-            cache_keys = pkgcache.keys()
+        cache_keys = self.__filter_base_urls(base_url, pkgcache)
 
         # Go trough all base_url keys
         best = None
@@ -320,18 +304,7 @@ class AptRepoClient:
             Should return touple (base_url,package_version) with the best version found in cache.
             If base_url is not specified, all repositories will be checked
         """
-        if base_url:
-            if type(base_url) == types.ListType:
-                cache_keys = base_url
-            elif type(base_url) == types.StringType:
-                cache_keys = [ (base_url, "/", None) ]
-            elif type(base_url) == types.TupleType:
-                cache_keys = [base_url]
-            else:
-                # WTF!?
-                raise TypeError("Parameter base_url should be array of strings or string")
-        else:
-            cache_keys = pkgcache.keys()
+        cache_keys = self.__filter_base_urls(base_url, pkgcache)
 
         pkg_vers = [] 
         for cache_key in cache_keys:
@@ -346,24 +319,13 @@ class AptRepoClient:
         """
            Should return array of packages, matched by name/vesion, from one or more base_urls
         """
-        pkgs = []
-        if base_url:
-            if type(base_url) == types.ListType:
-                cache_keys = base_url
-            elif type(base_url) == types.StringType:
-                cache_keys = [ (base_url, "/", None) ]
-            elif type(base_url) == types.TupleType:
-                cache_keys = [base_url]
-            else:
-                # WTF!?
-                raise TypeError("Parameter base_url should be array of strings or string")
-        else:
-            cache_keys = pkgcache.keys()
-
+        cache_keys = self.__filter_base_urls(base_url, pkgcache)
+        
         if version is not None and not isinstance(version, DpkgVersion):
             version = DpkgVersion(version)
 
         # Go trough all base_url keys
+        pkgs = []
         for cache_key in cache_keys:
             cache = pkgcache.get(cache_key, {})
             if package in cache:
@@ -475,10 +437,10 @@ class AptRepoClient:
         if match.group("repo").endswith("/") and not match.group("sections"):
             if repo_type == "deb":
                 __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Packages"))
-                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), None) ]
+                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), '') ]
             elif repo_type == "deb-src":
                 __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Sources"))
-                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), None ) ]
+                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), '' ) ]
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         else:
