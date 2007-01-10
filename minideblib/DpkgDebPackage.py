@@ -38,9 +38,9 @@ import tempfile
 import commands
 import errno
 
-from DpkgControl import DpkgParagraph
-from DpkgVersion import DpkgVersion
-from LoggableObject import LoggableObject
+from minideblib.DpkgControl import DpkgParagraph
+from minideblib.DpkgVersion import DpkgVersion
+from minideblib.LoggableObject import LoggableObject
 
 class DpkgDebPackageException(Exception):
     """General exception which could be raised by DpkgDebPackage"""

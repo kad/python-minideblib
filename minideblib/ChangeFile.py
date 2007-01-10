@@ -1,3 +1,8 @@
+#!/usr/bin/python -tt
+# -*- coding: UTF-8 -*-
+# vim: sw=4 ts=4 expandtab ai
+# $Id$
+
 # ChangeFile
 
 # A class which represents a Debian change file.
@@ -18,29 +23,36 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-import os, re, sys, string, stat, popen2
-import threading, Queue
-#import logging
-import DpkgControl, SignedFile
+__revision__ = "r"+"$Revision$"[11:-2]
+__all__ = [ 'ChangeFile', 'ChangeFileException' ]
+
+import os, re, string, stat, popen2
+
+from minideblib import DpkgControl
+from minideblib import SignedFile
+from minideblib.LoggableObject import LoggableObject
 
 class ChangeFileException(Exception):
+    """Exception generated in error situations"""
     def __init__(self, value):
+        Exception.__init__(self)
         self._value = value
+    def __repr__(self):
+        return `self._value`
     def __str__(self):
         return `self._value`
         
-class ChangeFile(DpkgControl.DpkgParagraph):
+class ChangeFile(DpkgControl.DpkgParagraph, LoggableObject):
     def __init__(self): 
         DpkgControl.DpkgParagraph.__init__(self)
         self.dsc = False
-        #self._logger = logging.getLogger("mini-dinstall")
         
     def load_from_file(self, filename):
         if filename[-4:] == '.dsc':
             self.dsc = True
-        f = SignedFile.SignedFile(open(filename))
-        self.load(f)
-        f.close()
+        fhdl = SignedFile.SignedFile(open(filename))
+        self.load(fhdl)
+        fhdl.close()
 
     def getFiles(self):
         out = []
@@ -69,24 +81,24 @@ class ChangeFile(DpkgControl.DpkgParagraph):
             self._verify_file_integrity(os.path.join(sourcedir, filename), int(size), md5sum)
             
     def _verify_file_integrity(self, filename, expected_size, expected_md5sum):
-        #self._logger.debug('Checking integrity of %s' % (filename,))
+        self._logger.debug('Checking integrity of %s' % (filename,))
         try:
             statbuf = os.stat(filename)
             if not stat.S_ISREG(statbuf[stat.ST_MODE]):
                 raise ChangeFileException("%s is not a regular file" % (filename,))
             size = statbuf[stat.ST_SIZE]
-        except OSError, e:
-            raise ChangeFileException("Can't stat %s: %s" % (filename,e.strerror))
+        except OSError, excp:
+            raise ChangeFileException("Can't stat %s: %s" % (filename, excp.strerror))
         if size != expected_size:
             raise ChangeFileException("File size for %s does not match that specified in .dsc" % (filename,))
         if (self._get_file_md5sum(filename) != expected_md5sum):
             raise ChangeFileException("md5sum for %s does not match that specified in .dsc" % (filename,))
-        #self._logger.debug('Verified md5sum %s and size %s for %s' % (expected_md5sum, expected_size, filename))
+        self._logger.debug('Verified md5sum %s and size %s for %s' % (expected_md5sum, expected_size, filename))
 
     def _get_file_md5sum(self, filename):
         if os.access('/usr/bin/md5sum', os.X_OK):
             cmd = '/usr/bin/md5sum %s' % (filename,)
-            #self._logger.debug("Running: %s" % (cmd,))
+            self._logger.debug("Running: %s" % (cmd,))
             child = popen2.Popen3(cmd, 1)
             child.tochild.close()
             erroutput = child.childerr.read()
@@ -107,12 +119,11 @@ class ChangeFile(DpkgControl.DpkgParagraph):
                 raise ChangeFileException(msg)
             return md5sum.strip()
         import md5
-        f = open(filename)
+        fhdl = open(filename)
         md5sum = md5.new()
-        buf = f.read(8192)
+        buf = fhdl.read(8192)
         while buf != '':
             md5sum.update(buf)
-            buf = f.read(8192)
+            buf = fhdl.read(8192)
+        fhdl.close()
         return md5sum.hexdigest()
-
-# vim:ts=4:sw=4:et:

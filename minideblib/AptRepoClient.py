@@ -32,6 +32,7 @@ __all__ = [ 'AptRepoClient', 'AptRepoException' ]
 from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgDatalist import DpkgOrderedDatalist
 from minideblib.DpkgVersion import DpkgVersion
+from minideblib.LoggableObject import LoggableObject
 import re, urllib2, os, types
 
 class AptRepoException(Exception):
@@ -156,7 +157,7 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
                 ofl.write("\n")
 
 
-class AptRepoClient:
+class AptRepoClient(LoggableObject):
     """ Client class to access Apt repositories. """
     def __init__(self, repos = None, arch = None):
         """Base class to access APT debian packages meta-data"""
@@ -402,11 +403,13 @@ class AptRepoClient:
         
             # Let's check .gz variant first
             try:
+                self._logger.debug("Fetching URL: %s.gz" % url)
                 fls = __universal_urlopen(url+".gz")
             except urllib2.HTTPError, hte:
                 if hte.code == 404:
                     # If no Packages/Sources.gz found, let's try just Packages/Sources
                     try:
+                        self._logger.debug("Compressed metadata not found. Fetching URL: %s" % url)
                         fls = __universal_urlopen(url)
                     except urllib2.HTTPError, hte:
                         if hte.code == 404:

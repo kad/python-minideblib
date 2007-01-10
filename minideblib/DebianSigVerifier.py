@@ -1,4 +1,8 @@
-# DebianSigVerifier -*- mode: python; coding: utf-8 -*-
+#!/usr/bin/python -tt
+# -*- coding: UTF-8 -*-
+# vim: sw=4 ts=4 expandtab ai
+#
+# DebianSigVerifier
 
 # A class for verifying signed files, using Debian keys
 
@@ -18,8 +22,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-import os, re, sys, string, stat, logging
-from minidinstall.GPGSigVerifier import GPGSigVerifier
+import os
+from minideblib.GPGSigVerifier import GPGSigVerifier
 
 class DebianSigVerifier(GPGSigVerifier):
     _dpkg_ring = '/etc/dpkg/local-keyring.gpg'
@@ -31,5 +35,3 @@ class DebianSigVerifier(GPGSigVerifier):
         if not extra_keyrings is None:
             keyrings += extra_keyrings
         GPGSigVerifier.__init__(self, keyrings)
-
-# vim:ts=4:sw=4:et:
