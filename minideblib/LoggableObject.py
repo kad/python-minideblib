@@ -46,7 +46,7 @@ class LazyInit(object):
 class LoggableObject:
     def _logger(self):
         """ Returns logger and initializes default handlers if needed """
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger(self.__module__)
         c = logger
         found = False
         while c:

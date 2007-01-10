@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.15) unstable; urgency=low
+
+  * Default name for logger is fixed. Now it's self.__module__
+
+ -- Alexander Kanevskiy <alexander.kanevskiy@nokia.com>  Wed, 10 Jan 2007 15:28:14 +0200
+
 python-minideblib (0.6.21.14) unstable; urgency=low
 
   * DpkgDebPackage: code cleanup and minor bigfixes
