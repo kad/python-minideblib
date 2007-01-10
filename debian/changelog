@@ -1,3 +1,13 @@
+python-minideblib (0.6.21.14) unstable; urgency=low
+
+  * DpkgDebPackage: code cleanup and minor bigfixes
+  * AptRepoClient: base_url is now tuple (url, distribution, section)
+  * AptRepoClient: code cleanup and bugfixes for trivial repositories
+  * LoggableObject: generic base class which provides to you self._logger
+    property correctly initialized, safe variant of logging.getLogger(__name__)
+
+ -- Alexander Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 14:20:42 +0200
+
 python-minideblib (0.6.21.13) unstable; urgency=low
 
   * DpkgChangelog: major style cleanups
