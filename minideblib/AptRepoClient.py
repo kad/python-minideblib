@@ -88,6 +88,34 @@ class AptRepoParagraph(DpkgParagraph):
                 out.append((match.group("f_md5"), match.group("f_size"), match.group("f_section"), match.group("f_priority"), match.group("f_name")))
         return out
 
+    def get_pkgid(self):
+        """Return pkg id for this package. For binaries it's MD5 sum of file, for sources MD5 sum of .dsc"""
+        try:
+            files = self['files']
+        except KeyError:
+            # Binary package ?
+            if "md5sum" in self:
+                return self['md5sum']
+            else:
+                # Something wrong
+                raise AptRepoException("Binary package, but MD5Sum not defined")
+
+        lineregexp = re.compile( 
+            "^(?P<f_md5>[0-9a-f]{32})[ \t]+(?P<f_size>\d+)" +
+            "(?:[ \t]+(?P<f_section>[-/a-zA-Z0-9]+)[ \t]+(?P<f_priority>[-a-zA-Z0-9]+))?" +
+            "[ \t]+(?P<f_name>[0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)$")
+    
+        for line in files:
+            if line == '':
+                continue
+            match = lineregexp.match(line)
+            if (match is None):
+                raise AptRepoException("Couldn't parse file entry \"%s\" in Files field of .changes" % (line,))
+            else:
+                if match.group("f_name").endswith(".dsc"):
+                    return match.group("f_md5")
+        raise AptRepoException("No DSC file found in source package")
+
     def get_urls(self):
         """Return array of URLs to package files"""
         if "filename" in self:
