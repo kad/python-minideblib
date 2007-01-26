@@ -51,6 +51,10 @@ class AptRepoParagraph(DpkgParagraph):
     def __init__(self, fname="", base_url=None):
         DpkgParagraph.__init__(self, fname)
         self.base_url = base_url
+        self.__files = None
+        self.__urls = None
+        self.__pkgid = None
+        self.__source_version = None
 
     def __hash__(self):
         """Make this object hashable"""
@@ -59,20 +63,25 @@ class AptRepoParagraph(DpkgParagraph):
     def set_base_url(self, base_url):
         """Sets base url for this package. Used later to calculate relative paths"""
         self.base_url = base_url
+        # After change the base URL, cached URLs are not valid anymore
+        self.__urls = None
 
     def get_files(self):
         """Return list of files in this package. Format similar to .changes files section"""
+        if self.__files:
+            return self.__files
         try:
             files = self['files']
         except KeyError:
             # Binary package ?
             if "filename" in self:
-                return [(self['md5sum'], self['size'], None, None, self['filename'])]
+                self.__files = [(self['md5sum'], self['size'], None, None, self['filename'])]
+                return self.__files
             else:
                 # Something wrong
                 return []
 
-        out = []
+        self.__files = []
         lineregexp = re.compile( 
             "^(?P<f_md5>[0-9a-f]{32})[ \t]+(?P<f_size>\d+)" +
             "(?:[ \t]+(?P<f_section>[-/a-zA-Z0-9]+)[ \t]+(?P<f_priority>[-a-zA-Z0-9]+))?" +
@@ -85,17 +94,20 @@ class AptRepoParagraph(DpkgParagraph):
             if (match is None):
                 raise AptRepoException("Couldn't parse file entry \"%s\" in Files field of .changes" % (line,))
             else:
-                out.append((match.group("f_md5"), match.group("f_size"), match.group("f_section"), match.group("f_priority"), match.group("f_name")))
-        return out
+                self.__files.append((match.group("f_md5"), match.group("f_size"), match.group("f_section"), match.group("f_priority"), match.group("f_name")))
+        return self.__files
 
     def get_pkgid(self):
         """Return pkg id for this package. For binaries it's MD5 sum of file, for sources MD5 sum of .dsc"""
+        if self.__pkgid:
+            return self.__pkgid
         try:
             files = self['files']
         except KeyError:
             # Binary package ?
             if "md5sum" in self:
-                return self['md5sum']
+                self.__pkgid = self['md5sum']
+                return self.__pkgid
             else:
                 # Something wrong
                 raise AptRepoException("Binary package, but MD5Sum not defined")
@@ -113,36 +125,47 @@ class AptRepoParagraph(DpkgParagraph):
                 raise AptRepoException("Couldn't parse file entry \"%s\" in Files field of .changes" % (line,))
             else:
                 if match.group("f_name").endswith(".dsc"):
-                    return match.group("f_md5")
+                    self.__pkgid = match.group("f_md5")
+                    return self.__pkgid
         raise AptRepoException("No DSC file found in source package")
 
     def get_urls(self):
         """Return array of URLs to package files"""
+
+        if self.__urls:
+            return self.__urls
         if "filename" in self:
-            return [os.path.join(self.base_url, self['filename'])]
+            self.__urls = [os.path.join(self.base_url, self['filename'])]
+            return self.__urls
         if "files" in self:
-            urls = []
+            self.__urls = []
             for elems in self.get_files():
-                urls.append(os.path.join(self.base_url, self['directory'], elems[4]))
-            return urls
+                self.__urls.append(os.path.join(self.base_url, self['directory'], elems[4]))
+            return self.__urls
 
     def get_source(self):
         """ Return tuple (name, version) for sources of this package """
+        if self.__source_version:
+            return self.__source_version
         if "files" in self:
             # It's source itself, stupid people
-            return (self['package'], self['version'])
+            self.__source_version = (self['package'], self['version'])
         # Ok, it's binary. Let's analize some situations
-        if "source" not in self:
+        elif "source" not in self:
             # source name the same as package
-            return (self['package'], self['version'])
+            self.__source_version = (self['package'], self['version'])
         else:
             # Source: tag present. Let's deal with it
             match = re.search(r"(?P<name>[0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)(\s+\((?P<ver>(?:[0-9]+:)?[a-zA-Z0-9.+-]+)\))?", self['source'])
             if not match.group("ver"):
-                return (match.group("name"), self['version'])
+                self.__source_version = (match.group("name"), self['version'])
             else:
                 # mostly braindead packagers
-                return (match.group("name"), match.group("ver"))
+                self.__source_version = (match.group("name"), match.group("ver"))
+        if self.__source_version:
+            return self.__source_version
+        else:
+            raise AptRepoException("Something strange. We can't identify source version")
 
 
 class AptRepoMetadataBase(DpkgOrderedDatalist):

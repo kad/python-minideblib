@@ -1,3 +1,10 @@
+python-minideblib (0.6.21.17) unstable; urgency=low
+
+  * AptRepoClient: added ability to get package IDs (md5 of .deb or .dsc)
+  * AptRepoClient: small caching mechanism for get_{source,files,urls,pkgid}()
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 14:27:50 +0200
+
 python-minideblib (0.6.21.16) unstable; urgency=low
 
   * AptRepoClient: added debug logging while accessing network
