@@ -1,3 +1,11 @@
+python-minideblib (0.6.21.18) unstable; urgency=low
+
+  * AptRepoClient: source_to_binaries_map, pkgid_map:
+    handy dictionaries to find binaries per source name/version
+    combination or by pkgid.
+
+ -- Alexander Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 19:01:32 +0200
+
 python-minideblib (0.6.21.17) unstable; urgency=low
 
   * AptRepoClient: added ability to get package IDs (md5 of .deb or .dsc)

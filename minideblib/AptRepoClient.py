@@ -218,6 +218,8 @@ class AptRepoClient(LoggableObject):
             self._arch = ["all"]
         self.sources = {}
         self.binaries = {}
+        self.source_to_binaries_map = {}
+        self.pkgid_map = {}
         self._repos = []
         if repos:
             self.__make_repos(repos)
@@ -227,6 +229,8 @@ class AptRepoClient(LoggableObject):
         if clear:
             self.sources = {}
             self.binaries = {}
+            self.source_to_binaries_map = {}
+            self.pkgid_map = {}
         if repoline:
             self.__make_repos(repoline, clear)    
 
@@ -235,6 +239,43 @@ class AptRepoClient(LoggableObject):
 
     # Alias for load_repos(). Just to make commandline apt-get users happy
     update = load_repos
+
+    def make_source_to_binaries_map(self):
+        """Makes dictionary 'source_to_binaries' out of available packages"""
+        if not self.binaries:
+            # If no binary packages, try to load them
+            self.load_repos()
+        if not self.source_to_binaries_map:
+            # Map not present and needs to be generated
+            for repo in self.binaries:
+                for pkgname in self.binaries[repo].keys():
+                    for pkg in self.binaries[repo][pkgname]:
+                        src = pkg.get_source()
+                        if src not in self.source_to_binaries_map:
+                            self.source_to_binaries_map[src] = []
+                        self.source_to_binaries_map[src].append(pkg)
+
+    def make_pkgid_map(self):
+        """Makes dictionary 'pkgid_map' out of available source/binary packages"""
+        if not self.binaries and not self.sources:
+            # If no packages, try to load them
+            self.load_repos()
+        if not self.pkgid_map:
+            # Map not present and needs to be generated
+            for repo in self.sources:
+                for pkgname in self.sources[repo].keys():
+                    for pkg in self.sources[repo][pkgname]:
+                        pkgid = pkg.get_pkgid()
+                        if pkgid not in self.pkgid_map:
+                            self.pkgid_map[pkgid] = []
+                        self.pkgid_map[pkgid].append(pkg)
+            for repo in self.binaries:
+                for pkgname in self.binaries[repo].keys():
+                    for pkg in self.binaries[repo][pkgname]:
+                        pkgid = pkg.get_pkgid()
+                        if pkgid not in self.pkgid_map:
+                            self.pkgid_map[pkgid] = []
+                        self.pkgid_map[pkgid].append(pkg)
 
     def get_available_source_repos(self):
         """Lists known source repositories. Format is [ (base_url, distribution, section), ... ]"""
