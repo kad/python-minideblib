@@ -466,8 +466,11 @@ class AptRepoClient(LoggableObject):
 
         def __universal_urlopen(url):
             """More robust urlopen. It understands gzip transfer encoding"""
-            request = urllib2.Request(url)
-            request.add_header("Accept-encoding", "gzip")
+            headers = { 'User-Agent': 'Mozilla/4.0 (compatible; Python/AptRepoClient)',
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache',
+                        'Accept-encoding': 'gzip' }
+            request = urllib2.Request(url, None, headers)
             usock = urllib2.urlopen(request)
             if usock.headers.get('content-encoding', None) == 'gzip' or url.endswith(".gz"):
                 data = usock.read()
