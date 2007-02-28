@@ -61,7 +61,7 @@ class ChangeFile(DpkgControl.DpkgParagraph, LoggableObject):
         except KeyError:
             return []
         if self.dsc:
-            lineregexp = re.compile("^([0-9a-f]{32})[ \t]+(\d+)[ \t]+([0-9a-zA-Z][-+:.,=0-9a-zA-Z_]+)$")
+            lineregexp = re.compile("^([0-9a-f]{32})[ \t]+(\d+)[ \t]+([0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)$")
         else:
             lineregexp = re.compile("^([0-9a-f]{32})[ \t]+(\d+)[ \t]+([-/a-zA-Z0-9]+)[ \t]+([-a-zA-Z0-9]+)[ \t]+([0-9a-zA-Z][-+:.,=~0-9a-zA-Z_]+)$")
         for line in files:

@@ -45,7 +45,7 @@ class DpkgChangelogException(Exception):
 
 # Fixed settings, do not change these unless you really know what you are doing
 PackageRegex    = "[a-z0-9][a-z0-9.+-]+"        # Regular expression package names must comply with
-VersionRegex    = "(?:[0-9]+:)?[a-zA-Z0-9.+-]+" # Regular expression package versions must comply wi
+VersionRegex    = "(?:[0-9]+:)?[a-zA-Z0-9~.+-]+" # Regular expression package versions must comply with
 
 # Regular expressions for various bits of the syntax used
 ClosesRegex     = "closes:\s*(?:bug)?#?\s?\d+(?:,\s?(?:bug)?#?\s?\d+)*"
