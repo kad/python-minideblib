@@ -56,6 +56,7 @@ NMBugRegex      = "B#(\d+)"
 NReqImplRegex   = "Implemented:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
 NReqUpdRegex    = "Updated:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
 NReqPartRegex   = "Partial:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
+NReqDropRegex   = "Dropped:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
 NReqRegex       = "R#(\d{1,6})"
 
 # Precompile the regular expressions
@@ -67,6 +68,7 @@ MBugMatcher      = re.compile(MBugRegex, re.IGNORECASE)
 NReqImplMatcher  = re.compile(NReqImplRegex, re.IGNORECASE)
 NReqUpdMatcher   = re.compile(NReqUpdRegex, re.IGNORECASE)
 NReqPartMatcher  = re.compile(NReqPartRegex, re.IGNORECASE)
+NReqDropMatcher  = re.compile(NReqDropRegex, re.IGNORECASE)
 NReqMatcher      = re.compile(NReqRegex)
 
 
@@ -101,6 +103,7 @@ class DpkgChangelogEntry:
         self.nreqsimplemented = []
         self.nreqsupdated = []
         self.nreqspartial = []
+        self.nreqsdropped = []
         self.attributes = {}
         self.entries = []
 
@@ -133,6 +136,10 @@ class DpkgChangelogEntry:
         match = NReqPartMatcher.search(entry)
         if match:
             self.nreqspartial.extend(NReqMatcher.findall(match.group(0)))
+        # Check if we have dropped requirements
+        match = NReqDropMatcher.search(entry)
+        if match:
+            self.nreqsdropped.extend(NReqMatcher.findall(match.group(0)))
         self.entries.append(entry)
 
 

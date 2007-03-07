@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.20) unstable; urgency=low
+
+  * Added support of "Dropped:" keyword to DpkgChangelog
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Wed,  7 Mar 2007 15:09:47 +0200
+
 python-minideblib (0.6.21.19) unstable; urgency=low
 
   * DpkgChangelog, ChangeFile: "~" is now acceptable symbol in package
