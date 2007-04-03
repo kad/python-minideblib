@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.21) unstable; urgency=low
+
+  * Fix regexp for distributions in DpkgChangelog
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  3 Apr 2007 09:49:05 +0300
+
 python-minideblib (0.6.21.20) unstable; urgency=low
 
   * Added support of "Dropped:" keyword to DpkgChangelog

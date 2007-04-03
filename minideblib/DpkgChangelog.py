@@ -40,6 +40,8 @@ class DpkgChangelogException(Exception):
     def __init__(self, msg):
         Exception.__init__(self)
         self.msg = msg
+    def __str__(self):
+        return self.msg
     def __repr__(self):
         return self.msg
 
@@ -73,7 +75,7 @@ NReqMatcher      = re.compile(NReqRegex)
 
 
 # Changelog regexps
-StartRegex      = "(?P<package>%s) \((?P<version>%s)\) (?P<distribution>\w+(?:\s+\w+)*); (?P<attrs>.*)" % (PackageRegex, VersionRegex)
+StartRegex      = "(?P<package>%s) \((?P<version>%s)\) (?P<distribution>[\w-]+(?:\s+[\w-]+)*); (?P<attrs>.*)" % (PackageRegex, VersionRegex)
 EndRegex        = " -- (?P<changedby>.+? <.+?>)  (?P<date>.*)"
 AttrRegex       = "(?P<key>.+?)=(?P<value>.*)"
 
