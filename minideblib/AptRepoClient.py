@@ -31,7 +31,7 @@ __all__ = [ 'AptRepoClient', 'AptRepoException' ]
 
 from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgDatalist import DpkgOrderedDatalist
-from minideblib.DpkgVersion import DpkgVersion
+from minideblib.DpkgVersion import DpkgVersion, VersionError
 from minideblib.LoggableObject import LoggableObject
 import re, urllib2, os, types
 
@@ -415,7 +415,12 @@ class AptRepoClient(LoggableObject):
         cache_keys = self.__filter_base_urls(base_url, pkgcache)
         
         if version is not None and not isinstance(version, DpkgVersion):
-            version = DpkgVersion(version)
+            try:
+                version = DpkgVersion(version)
+            except VersionError:
+                # Bad input data. Return empty set
+                self._logger.info("BadVersion: %s" % version)
+                return []
 
         # Go trough all base_url keys
         pkgs = []
@@ -423,8 +428,13 @@ class AptRepoClient(LoggableObject):
             cache = pkgcache.get(cache_key, {})
             if package in cache:
                 for pkg in cache[package]:
-                    if version is not None and DpkgVersion(pkg['version']) == version:
-                        pkgs.append(pkg)
+                    try:
+                        if version is not None and DpkgVersion(pkg['version']) == version:
+                            pkgs.append(pkg)
+                    except VersionError:
+                        # Package with bad version in repository. Let's skip it
+                        self._logger.info("BadVersion: %s %s" % (package, pkg['version']))
+                        continue
         return pkgs
 
     def __pkg_best_match(self, cache):
@@ -432,12 +442,20 @@ class AptRepoClient(LoggableObject):
         if len(cache) == 0:
             # WTF!?
             return None
-        best = DpkgVersion(cache[0]['version'])
+        try:
+            best = DpkgVersion(cache[0]['version'])
+        except VersionError:
+            self._logger.info("BadVersion: %s %s" % (cache[0]['package'], cache[0]['version']))
+            return None
         if len(cache) > 1:
             for pkg in cache:
-                pkg_ver = DpkgVersion(pkg['version'])
-                if pkg_ver > best:
-                    best = pkg_ver
+                try:
+                    pkg_ver = DpkgVersion(pkg['version'])
+                    if pkg_ver > best:
+                        best = pkg_ver
+                except VersionError:
+                    self._logger.info("BadVersion: %s %s" % (pkg['package'], pkg['version']))
+                    continue
         return best 
 
     def __make_repos(self, repos = None, clear = True):

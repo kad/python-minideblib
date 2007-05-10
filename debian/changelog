@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.22) unstable; urgency=low
+
+  * AptRepoClient: foolproof parsing of package versions
+
+ -- Alexandr Kanevskiy <packages@bifh.org>  Thu, 10 May 2007 22:19:07 +0300
+
 python-minideblib (0.6.21.21) unstable; urgency=low
 
   * Fix regexp for distributions in DpkgChangelog
