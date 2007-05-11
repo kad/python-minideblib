@@ -16,7 +16,8 @@ BuildArch:      noarch
 BuildRequires:  python-setuptools python-devel
 
 %description
-
+Small python library of classes, that simplify tasks for handling 
+Debian source and binary packages.
 
 %prep
 %setup -q -n minideblib-%{version}
