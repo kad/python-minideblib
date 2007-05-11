@@ -1,4 +1,6 @@
+PKG-INFO
 README
+python-minideblib.spec
 setup.cfg
 setup.py
 debian/changelog
