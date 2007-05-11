@@ -1,0 +1,18 @@
+Metadata-Version: 1.0
+Name: minideblib
+Version: 0.6.21.23
+Summary: Access to deb files and repositories
+Home-page: http://bifh.org/wiki/python-minideblib
+Author: Alexandr D. Kanevskiy
+Author-email: packages@bifh.org
+License: GPL
+Description: Python library for manipulating debian packages and repositories
+Keywords: python debian apt dpkg
+Platform: Python 2.3 and later.
+Classifier: Development Status :: 4 - Beta
+Classifier: Operating System :: Unix
+Classifier: License :: OSI Approved :: GNU General Public License (GPL)
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python
+Classifier: Topic :: System :: Archiving :: Packaging
+Classifier: Topic :: Software Development :: Libraries :: Python Modules

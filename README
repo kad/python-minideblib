@@ -1,0 +1,9 @@
+Python Mini Debian Library by Alexandr D. Kanevskiy <kad@bifh.org>
+
+Parts of code taken from modules written by:
+
+Colin Walters <walters@debian.org>
+Adam Heath <doogie@debian.org>
+Wichert Akkerman <wichert@linux.com>
+Steve Kowalik <stevenk@debian.org>
+Scott James Remnant <scott@netsplit.com>

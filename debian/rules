@@ -4,11 +4,10 @@
 # This file is public domain software, originally written by Joey Hess.
 
 build:
+	python setup.py build
 
-minideblib/version.py: debian/changelog
-	echo "pkg_version = \"`dpkg-parsechangelog | awk '/^Version:/ { print $$2 }'`\"" > minideblib/version.py
 
-clean: minideblib/version.py
+clean: 
 	dh_testdir
 	dh_testroot
 	rm -f build-stamp
@@ -19,7 +18,7 @@ install: build
 	dh_testroot
 	dh_clean -k
 	dh_installdirs
-	$(MAKE) install DESTDIR=debian/python-minideblib
+	python setup.py install -O1 --skip-build --root debian/python-minideblib
 
 # Build architecture-independent files here.
 binary-indep: build install
