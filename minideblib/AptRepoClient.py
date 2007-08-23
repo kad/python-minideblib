@@ -169,11 +169,12 @@ class AptRepoParagraph(DpkgParagraph):
 
 
 class AptRepoMetadataBase(DpkgOrderedDatalist):
-    def __init__(self, base_url = None, case_sensitive = 0):
+    def __init__(self, base_url = None, case_sensitive = 0, allowed_arches = None):
         DpkgOrderedDatalist.__init__(self)
         self.key = "package"
         self.case_sensitive = case_sensitive
         self.base_url = base_url
+        self.allowed_arches = allowed_arches
 
     def setkey(self, key):
         self.key = key
@@ -196,6 +197,11 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
             para = self.__load_one(inf, base_url)
             if not para: 
                 break
+            if self.allowed_arches and self.allowed_arches != [ "all" ]:
+                if 'architecture' in para and \
+                    para['architecture'] != "all" and \
+                    para['architecture'] not in self.allowed_arches:
+                    continue
             if para[self.key] not in self:
                 self[para[self.key]] = []
             self[para[self.key]].append(para)
@@ -463,7 +469,10 @@ class AptRepoClient(LoggableObject):
         def filter_repolines(repolines):
             """Return filtered list of repos after removing comments and whitespace"""
             def filter_repoline(repoline):
-                """ Get rid of all comments and whitespace """
+                """ Get rid of all comments and whitespace."""
+                # Replace "copy:" method to "file:"
+                repoline = re.sub("(\s)copy:", "\\1file:", repoline)
+                # Strip comments and spaces
                 repos = repoline.split("#")[0].strip()
                 return (repos and [repos] or [None])[0]
             temp = []
@@ -511,7 +520,7 @@ class AptRepoClient(LoggableObject):
         
         for (url, distro, section) in repourls:
             if (base_url, distro, section) not in dest_dict:
-                dest_dict[(base_url, distro, section)] = AptRepoMetadataBase(base_url)
+                dest_dict[(base_url, distro, section)] = AptRepoMetadataBase(base_url, allowed_arches=self._arch)
             dest = dest_dict[(base_url, distro, section)]
         
             # Let's check .gz variant first

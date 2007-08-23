@@ -2,7 +2,7 @@
 %{!?pyver: %define pyver %(%{__python} -c "import sys ; print sys.version[:3]")}
 
 Name:           python-minideblib
-Version:        0.6.21.24
+Version:        0.6.21.25
 Release:        1%{?dist}
 Summary:        Python modules for access deb files and repositories
 
@@ -47,5 +47,9 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Thu Aug 23 2007 Alexandr D. Kanevskiy <packages@bifh.org>
+- AptRepoClient: support copy: method
+- AptRepoClient: only load requested architectures for tirvial repositories
+
 * Fri May 11 2007 Alexandr D. Kanevskiy <packages@bifh.org>
 - initial packaging 
