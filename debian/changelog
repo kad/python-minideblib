@@ -1,47 +1,59 @@
+python-minideblib (0.6.21.27) unstable; urgency=low
+
+  * AptRepoClient: fixed another case with source's arch
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Fri, 21 Sep 2007 07:55:29 +0300
+
+python-minideblib (0.6.21.26) unstable; urgency=low
+
+  * AptRepoClient: "any" = "all"
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue, 11 Sep 2007 12:34:44 +0300
+
 python-minideblib (0.6.21.25) unstable; urgency=low
 
   * AptRepoClient: support copy: method
   * AptRepoClient: only load requested architectures for tirvial repositories
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Thu, 23 Aug 2007 11:45:42 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu, 23 Aug 2007 11:45:42 +0300
 
 python-minideblib (0.6.21.24) unstable; urgency=low
 
   * use pycentral for debian packaging
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 25 Jun 2007 20:23:48 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Mon, 25 Jun 2007 20:23:48 +0300
 
 python-minideblib (0.6.21.23) unstable; urgency=low
 
   * use distutils/setuptools instead of own make file.
   * rpm packaging
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 11 May 2007 23:49:36 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Fri, 11 May 2007 23:49:36 +0300
 
 python-minideblib (0.6.21.22) unstable; urgency=low
 
   * AptRepoClient: foolproof parsing of package versions
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Thu, 10 May 2007 22:19:07 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu, 10 May 2007 22:19:07 +0300
 
 python-minideblib (0.6.21.21) unstable; urgency=low
 
   * Fix regexp for distributions in DpkgChangelog
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  3 Apr 2007 09:49:05 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue,  3 Apr 2007 09:49:05 +0300
 
 python-minideblib (0.6.21.20) unstable; urgency=low
 
   * Added support of "Dropped:" keyword to DpkgChangelog
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed,  7 Mar 2007 15:09:47 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed,  7 Mar 2007 15:09:47 +0200
 
 python-minideblib (0.6.21.19) unstable; urgency=low
 
   * DpkgChangelog, ChangeFile: "~" is now acceptable symbol in package
     versions
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed, 28 Feb 2007 11:04:14 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed, 28 Feb 2007 11:04:14 +0200
 
 python-minideblib (0.6.21.18) unstable; urgency=low
 
@@ -49,27 +61,27 @@ python-minideblib (0.6.21.18) unstable; urgency=low
     handy dictionaries to find binaries per source name/version
     combination or by pkgid.
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 19:01:32 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 19:01:32 +0200
 
 python-minideblib (0.6.21.17) unstable; urgency=low
 
   * AptRepoClient: added ability to get package IDs (md5 of .deb or .dsc)
   * AptRepoClient: small caching mechanism for get_{source,files,urls,pkgid}()
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 14:27:50 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Fri, 26 Jan 2007 14:27:50 +0200
 
 python-minideblib (0.6.21.16) unstable; urgency=low
 
   * AptRepoClient: added debug logging while accessing network
   * DebianSigVerifier, ChangeFile: minor legacy code cleanups
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 18:12:16 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 18:12:16 +0200
 
 python-minideblib (0.6.21.15) unstable; urgency=low
 
   * Default name for logger is fixed. Now it's self.__module__
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 15:28:14 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 15:28:14 +0200
 
 python-minideblib (0.6.21.14) unstable; urgency=low
 
@@ -79,7 +91,7 @@ python-minideblib (0.6.21.14) unstable; urgency=low
   * LoggableObject: generic base class which provides to you self._logger
     property correctly initialized, safe variant of logging.getLogger(__name__)
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 14:20:42 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed, 10 Jan 2007 14:20:42 +0200
 
 python-minideblib (0.6.21.13) unstable; urgency=low
 
@@ -88,26 +100,26 @@ python-minideblib (0.6.21.13) unstable; urgency=low
   * DpkgChangelog: correctly parse multiline Fixes statements
   * DpkgChangelog: parse "Partial:" requirements statements
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Sun, 12 Nov 2006 13:10:41 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Sun, 12 Nov 2006 13:10:41 +0200
 
 python-minideblib (0.6.21.12) unstable; urgency=low
 
   * Fix for getting information about unknown packages
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 15:37:08 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 15:37:08 +0300
 
 python-minideblib (0.6.21.11) unstable; urgency=low
 
   * Correctly compare version as DpkgVersion object, not as a strings
   * Workarround in DpkgVersion for braindead maintainers
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 12:00:22 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Mon, 14 Aug 2006 12:00:22 +0300
 
 python-minideblib (0.6.21.10) unstable; urgency=low
 
   * extract_contents() is now public in DpkgDebPackage
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Mon, 10 Jul 2006 12:38:18 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Mon, 10 Jul 2006 12:38:18 +0300
 
 python-minideblib (0.6.21.9) unstable; urgency=low
 
@@ -118,13 +130,13 @@ python-minideblib (0.6.21.9) unstable; urgency=low
     get_source_name_version, they will return information about best available
     package/version.
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Thu,  6 Jul 2006 18:11:21 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu,  6 Jul 2006 18:11:21 +0300
 
 python-minideblib (0.6.21.8) unstable; urgency=low
 
   * Use DpkgVersion class instead of apt_pkg
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Fri, 21 Apr 2006 10:40:11 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Fri, 21 Apr 2006 10:40:11 +0300
 
 python-minideblib (0.6.21.7) unstable; urgency=low
 
@@ -141,44 +153,44 @@ python-minideblib (0.6.21.7) unstable; urgency=low
     + get_available_binary_versions()
     + get_available_source_versions()
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Sat,  8 Apr 2006 23:40:00 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Sat,  8 Apr 2006 23:40:00 +0300
 
 python-minideblib (0.6.21.6) unstable; urgency=low
 
   * Implemented AptRepoClient. Now it's possible to easily get meta data from
     remote repositories
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Wed,  5 Apr 2006 23:57:51 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed,  5 Apr 2006 23:57:51 +0300
 
 python-minideblib (0.6.21.5) unstable; urgency=low
 
   * Added matchers for Maemo specific bugs and requirements
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Sun, 19 Mar 2006 22:42:11 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Sun, 19 Mar 2006 22:42:11 +0200
 
 python-minideblib (0.6.21.4) unstable; urgency=low
 
   * Handle multiple distributions in changelog parser
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 16:37:08 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 16:37:08 +0200
 
 python-minideblib (0.6.21.3) unstable; urgency=low
 
   * New modules: DpkgVersion, DpkgChangelog, DpkgDebPackage
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 13:52:12 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue,  8 Nov 2005 13:52:12 +0200
 
 python-minideblib (0.6.21.2) unstable; urgency=low
 
   * GPGSigVerifier and DebianSigVerifier from upstream
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  1 Nov 2005 17:20:13 +0200
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue,  1 Nov 2005 17:20:13 +0200
 
 python-minideblib (0.6.21.1) unstable; urgency=low
 
   * Fix parsing control files, if commentary present in it.
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue, 11 Oct 2005 17:23:18 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue, 11 Oct 2005 17:23:18 +0300
 
 python-minideblib (0.6.21.0) unstable; urgency=low
 
@@ -186,5 +198,5 @@ python-minideblib (0.6.21.0) unstable; urgency=low
   * Remove call to logging functions
   * ChangeFile could now parses .dsc files
 
- -- Alexandr Kanevskiy <packages@bifh.org>  Tue,  4 Oct 2005 18:01:16 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Tue,  4 Oct 2005 18:01:16 +0300
 

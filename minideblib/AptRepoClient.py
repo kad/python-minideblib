@@ -197,10 +197,12 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
             para = self.__load_one(inf, base_url)
             if not para: 
                 break
-            if self.allowed_arches and self.allowed_arches != [ "all" ]:
-                if 'architecture' in para and \
-                    para['architecture'] != "all" and \
-                    para['architecture'] not in self.allowed_arches:
+            
+            if 'architecture' in para and \
+                para['architecture'] not in [ "all", "any" ] and \
+                self.allowed_arches and \
+                self.allowed_arches != [ "all" ] and \
+                not [arch for arch in para['architecture'].split() if arch in self.allowed_arches]:
                     continue
             if para[self.key] not in self:
                 self[para[self.key]] = []
