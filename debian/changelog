@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.28) unstable; urgency=low
+
+  * AptRepoClient: fixed regexp to match any empty space in sources.list
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu,  3 Jan 2008 20:13:38 +0200
+
 python-minideblib (0.6.21.27) unstable; urgency=low
 
   * AptRepoClient: fixed another case with source's arch

@@ -554,7 +554,7 @@ class AptRepoClient(LoggableObject):
 
     def __make_urls(self, repoline):
         """The same as above, but only for one line"""
-        match = re.match("(?P<repo_type>deb|deb-src) (?P<base_url>.+?) (?P<repo>.+?)(?:\s+(?P<sections>.+))?$", repoline)
+        match = re.match("(?P<repo_type>deb|deb-src)\s+(?P<base_url>.+?)\s+(?P<repo>.+?)(?:\s+(?P<sections>.+))?$", repoline)
         if not match:
             raise AptRepoException("Unable to parse: %s" % repoline)
        
