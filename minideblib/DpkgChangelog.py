@@ -231,7 +231,7 @@ class DpkgChangelog:
         return entry
 
 
-    def parse_changelog(self, changelog):
+    def parse_changelog(self, changelog, since_ver = None):
         '''Parses changelog argument (could be file or string)
         and represents it's content as array of DpkgChangelogEntry'''
         if type(changelog) is types.StringType:
@@ -240,15 +240,25 @@ class DpkgChangelog:
             fh = changelog
         else: 
             raise DpkgChangelogException, "Invalid argument type"
-        
+
+        pkg_name = None
+
         while True:
             try:
                 entry = self._parse_one_entry(fh)
+                if since_ver:
+                    if not pkg_name:
+                        pkg_name = entry.package
+                    if pkg_name <> entry.package or entry.version <= since_ver:
+                        # if changelog contains entries for different source 
+                        # package name or we already parsed version till which
+                        # we asked to parse -> stop.
+                        break
                 self.entries.append(entry)
-            except DpkgChangelogException, e:
-                last_err = e.msg
+            except DpkgChangelogException, ex:
+                last_err = ex.msg
                 break
-        
+
         if len(self.entries) > 0:
             self.package = self.entries[0].package
             self.version = self.entries[0].version
@@ -256,5 +266,4 @@ class DpkgChangelog:
             self.changedby = self.entries[0].changedby
         else:
             raise DpkgChangelogException, "Unable to get entries from changelog: %s" % last_err
-
 
