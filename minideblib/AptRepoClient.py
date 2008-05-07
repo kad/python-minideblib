@@ -33,7 +33,81 @@ from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgDatalist import DpkgOrderedDatalist
 from minideblib.DpkgVersion import DpkgVersion, VersionError
 from minideblib.LoggableObject import LoggableObject
-import re, urllib2, os, types
+import re, urllib2, os, types, time
+
+try:
+    set()
+except NameError:
+    from sets import Set as set
+
+
+def _universal_urlopen(url):
+    """More robust urlopen. It understands gzip transfer encoding"""
+    headers = { 'User-Agent': 'Mozilla/4.0 (compatible; Python/AptRepoClient)',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
+                'Accept-encoding': 'gzip' }
+    request = urllib2.Request(url, None, headers)
+    usock = urllib2.urlopen(request)
+    if usock.headers.get('content-encoding', None) == 'gzip' or url.endswith(".gz"):
+        data = usock.read()
+        import cStringIO, gzip
+        data = gzip.GzipFile(fileobj = cStringIO.StringIO(data)).read()
+        return cStringIO.StringIO(data)
+    else:
+        return usock
+
+
+def _filter_base_urls(base_url, pkgcache):
+    """Return list of keys to be used in pkgcache lookup according to requested base_keys"""
+    if base_url:
+        if isinstance(base_url, types.ListType):
+            cache_keys = base_url
+        elif isinstance(base_url, types.StringType):
+            cache_keys = [ (base_url, "/", '') ]
+        elif isinstance(base_url, types.TupleType):
+            cache_keys = [base_url]
+        else:
+            # WTF!?
+            raise TypeError("Parameter base_url should be array of strings or string or tuple")
+        # Ok, we have list of keys, let's compare them
+        rkeys = set()
+        pckeys = pkgcache.keys()
+        for ckey in cache_keys:
+            if not isinstance(ckey, types.TupleType) and len(ckey) != 3:
+                raise TypeError("base_url key should be a tuple -> (url, distribution, section): %s" % str(ckey))
+            rkeys.update([akey for akey in pckeys if (ckey[0] is None or ckey[0] == akey[0]) and (ckey[1] is None or ckey[1] == akey[1]) and (ckey[2] is None or ckey[2] == akey[2])])
+        return list(rkeys) 
+    else:
+        return pkgcache.keys()
+
+
+def _get_available_pkgs(base_url, pkgcache):
+    """Returns list of package names, available in pkgcache filtered by base_url"""
+    cache_keys = _filter_base_urls(base_url, pkgcache)
+    pkg_names = set()
+    for cache_key in cache_keys:
+        pkgs = pkgcache.get(cache_key, {})
+        pkg_names.update(pkgs.keys())
+    return list(pkg_names)
+
+
+def _get_available_versions(package, base_url, pkgcache):
+    """
+        Should return touple (base_url,package_version) with the best version found in cache.
+        If base_url is not specified, all repositories will be checked
+    """
+    cache_keys = _filter_base_urls(base_url, pkgcache)
+
+    pkg_vers = [] 
+    for cache_key in cache_keys:
+        cache = pkgcache.get(cache_key, {})
+        if package in cache:
+            for pkg in cache[package]:
+                if (cache_key, pkg['version']) not in pkg_vers:
+                    pkg_vers.append((cache_key, pkg['version']))
+    return pkg_vers
+
 
 class AptRepoException(Exception):
     """Exception generated in error situations"""
@@ -48,7 +122,7 @@ class AptRepoException(Exception):
 
 class AptRepoParagraph(DpkgParagraph):
     """Like DpkgParagraph, but can return urls to packages and can return correct source package name/version for binaries"""
-    def __init__(self, fname="", base_url=None):
+    def __init__(self, fname = "", base_url = None):
         DpkgParagraph.__init__(self, fname)
         self.base_url = base_url
         self.__files = None
@@ -184,12 +258,12 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
 
     def __load_one(self, in_file, base_url):
         """Load meta-information for one package"""
-        para = AptRepoParagraph(None, base_url=base_url)
+        para = AptRepoParagraph(None, base_url = base_url)
         para.setCaseSensitive(self.case_sensitive)
         para.load( in_file )
         return para
 
-    def load(self, inf, base_url=None):
+    def load(self, inf, base_url = None):
         """Load packages meta-information to internal data structures"""
         if base_url is None:
             base_url = self.base_url
@@ -199,11 +273,10 @@ class AptRepoMetadataBase(DpkgOrderedDatalist):
                 break
             
             if 'architecture' in para and \
-                para['architecture'] not in [ "all", "any" ] and \
-                self.allowed_arches and \
-                self.allowed_arches != [ "all" ] and \
-                not [arch for arch in para['architecture'].split() if arch in self.allowed_arches]:
-                    continue
+                    para['architecture'] not in [ "all", "any" ] and \
+                    self.allowed_arches and self.allowed_arches != [ "all" ] and \
+                    not [arch for arch in para['architecture'].split() if arch in self.allowed_arches]:
+                continue
             if para[self.key] not in self:
                 self[para[self.key]] = []
             self[para[self.key]].append(para)
@@ -242,8 +315,7 @@ class AptRepoClient(LoggableObject):
         if repoline:
             self.__make_repos(repoline, clear)    
 
-        for url in self._repos:
-            self.__load_one_repo(url, ignore_errors)
+        self.__load_repos(self._repos, ignore_errors)
 
     # Alias for load_repos(). Just to make commandline apt-get users happy
     update = load_repos
@@ -322,62 +394,23 @@ class AptRepoClient(LoggableObject):
             return self.__get_pkgs_by_name_version(package, version, base_url, self.sources)
 
     def get_available_binary_versions(self, package, base_url = None):
-        return self.__get_available_versions(package, base_url, self.binaries)
+        return _get_available_versions(package, base_url, self.binaries)
 
     def get_available_source_versions(self, package, base_url = None):
-        return self.__get_available_versions(package, base_url, self.sources)
+        return _get_available_versions(package, base_url, self.sources)
 
     def get_available_sources(self, base_url = None):
-        return self.__get_available_pkgs(base_url, self.sources)
+        return _get_available_pkgs(base_url, self.sources)
 
     def get_available_binaries(self, base_url = None):
-        return self.__get_available_pkgs(base_url, self.binaries)
-
-    def __get_available_pkgs(self, base_url, pkgcache):
-        cache_keys = self.__filter_base_urls(base_url, pkgcache)
-        try: 
-            set
-        except NameError: 
-            from sets import Set as set
-        pkg_names = set() 
-        for cache_key in cache_keys:
-            pkgs = pkgcache.get(cache_key, {})
-            pkg_names.update(pkgs.keys())
-        return list(pkg_names)
-    
-    def __filter_base_urls(self, base_url, pkgcache):
-        """Return list of keys to be used in pkgcache lookup according to requested base_keys"""
-        if base_url:
-            if type(base_url) == types.ListType:
-                cache_keys = base_url
-            elif type(base_url) == types.StringType:
-                cache_keys = [ (base_url, "/", '') ]
-            elif type(base_url) == types.TupleType:
-                cache_keys = [base_url]
-            else:
-                # WTF!?
-                raise TypeError("Parameter base_url should be array of strings or string or tuple")
-            # Ok, we have list of keys, let's compare them
-            try:
-                set
-            except NameError:
-                from sets import Set as set
-            rkeys = set()
-            pckeys = pkgcache.keys()
-            for ckey in cache_keys:
-                if type(ckey) != types.TupleType and len(ckey) != 3:
-                    raise TypeError("base_url key should be a tuple -> (url, distribution, section): %s" % str(ckey))
-                rkeys.update([akey for akey in pckeys if (ckey[0] is None or ckey[0] == akey[0]) and (ckey[1] is None or ckey[1] == akey[1]) and (ckey[2] is None or ckey[2] == akey[2])])
-            return list(rkeys) 
-        else:
-            return pkgcache.keys()
+        return _get_available_pkgs(base_url, self.binaries)
 
     def __get_best_version(self, package, base_url, pkgcache):
         """
             Should return touple (base_url,package_version) with the best version found in cache.
             If base_url is not specified, all repositories will be checked
         """
-        cache_keys = self.__filter_base_urls(base_url, pkgcache)
+        cache_keys = _filter_base_urls(base_url, pkgcache)
 
         # Go trough all base_url keys
         best = None
@@ -400,27 +433,11 @@ class AptRepoClient(LoggableObject):
         else:
             return (best_base_url, str(best))
 
-    def __get_available_versions(self, package, base_url, pkgcache):
-        """
-            Should return touple (base_url,package_version) with the best version found in cache.
-            If base_url is not specified, all repositories will be checked
-        """
-        cache_keys = self.__filter_base_urls(base_url, pkgcache)
-
-        pkg_vers = [] 
-        for cache_key in cache_keys:
-            cache = pkgcache.get(cache_key, {})
-            if package in cache:
-                for pkg in cache[package]:
-                    if (cache_key, pkg['version']) not in pkg_vers:
-                        pkg_vers.append((cache_key, pkg['version']))
-        return pkg_vers
-
     def __get_pkgs_by_name_version(self, package, version, base_url, pkgcache):
         """
            Should return array of packages, matched by name/vesion, from one or more base_urls
         """
-        cache_keys = self.__filter_base_urls(base_url, pkgcache)
+        cache_keys = _filter_base_urls(base_url, pkgcache)
         
         if version is not None and not isinstance(version, DpkgVersion):
             try:
@@ -480,77 +497,71 @@ class AptRepoClient(LoggableObject):
             temp = []
             for line in repolines:
                 repoline = filter_repoline(line)
-                if repoline:
+                if repoline and repoline not in temp:
                     temp.append(repoline)
             return temp
         if clear:
             self._repos = []
-        if type(repos) == types.ListType:
-            self._repos += filter_repolines(repos)
-        elif type(repos) == types.StringType:
-            self._repos += filter_repolines(repos.splitlines())
+        if isinstance(repos, (types.ListType, types.TupleType)):
+            self._repos += [repo for repo in filter_repolines(repos) if repo not in self._repos]
+        elif isinstance(repos, types.StringType):
+            self._repos += [repo for repo in filter_repolines(repos.splitlines()) if repo not in self._repos]
 
-    def __load_one_repo(self, repo, ignore_errors = True):
+
+    def __load_repos(self, repos, ignore_errors = True):
         """Should load data from remote repository. Format the same as sources.list"""
-
-        def __universal_urlopen(url):
-            """More robust urlopen. It understands gzip transfer encoding"""
-            headers = { 'User-Agent': 'Mozilla/4.0 (compatible; Python/AptRepoClient)',
-                        'Pragma': 'no-cache',
-                        'Cache-Control': 'no-cache',
-                        'Accept-encoding': 'gzip' }
-            request = urllib2.Request(url, None, headers)
-            usock = urllib2.urlopen(request)
-            if usock.headers.get('content-encoding', None) == 'gzip' or url.endswith(".gz"):
-                data = usock.read()
-                import cStringIO, gzip
-                data = gzip.GzipFile(fileobj=cStringIO.StringIO(data)).read()
-                return cStringIO.StringIO(data)
+        to_load = []
+        for repo in repos:
+            (base_url, url_srcs, url_bins) = self.__make_urls(repo)
+            if url_srcs:
+                repourls = url_srcs 
+                dest_dict = self.sources
+            elif url_bins:
+                repourls = url_bins
+                dest_dict = self.binaries
             else:
-                return usock
+                # Something wrong ?
+                raise AptRepoException("WTF?!")
 
-        (base_url, url_srcs, url_bins) = self.__make_urls(repo)
-        if url_srcs:
-            repourls = url_srcs 
-            dest_dict = self.sources
-        elif url_bins:
-            repourls = url_bins
-            dest_dict = self.binaries
-        else:
-            # Something wrong ?
-            raise AptRepoException("WTF?!")
-        
-        for (url, distro, section) in repourls:
-            if (base_url, distro, section) not in dest_dict:
-                dest_dict[(base_url, distro, section)] = AptRepoMetadataBase(base_url, allowed_arches=self._arch)
-            dest = dest_dict[(base_url, distro, section)]
-        
-            # Let's check .gz variant first
-            try:
-                self._logger.debug("Fetching URL: %s.gz" % url)
-                fls = __universal_urlopen(url+".gz")
-            except urllib2.HTTPError, hte:
-                if hte.code == 404:
-                    # If no Packages/Sources.gz found, let's try just Packages/Sources
-                    try:
-                        self._logger.debug("Compressed metadata not found. Fetching URL: %s" % url)
-                        fls = __universal_urlopen(url)
-                    except urllib2.HTTPError, hte:
-                        if hte.code == 404:
-                            if ignore_errors:
-                                continue
-                            else:
-                                raise
+            for (url, distro, section) in repourls:
+                if (base_url, distro, section) not in dest_dict:
+                    dest_dict[(base_url, distro, section)] = AptRepoMetadataBase(base_url, allowed_arches = self._arch)
+                dest = dest_dict[(base_url, distro, section)]
+                to_load.append((base_url, url, dest, ignore_errors))
+
+        stt = time.time()
+        for args in to_load:
+            self.__parse_one_repo(*args)
+        self._logger.debug("Parsing time: %f", time.time()-stt)
+
+
+    def __parse_one_repo(self, base_url, url, dest, ignore_errors):
+        """Loads one repository meta-data from URL and parses it to dest"""
+        # Let's check .gz variant first
+        try:
+            self._logger.debug("Fetching URL: %s.gz" % url)
+            fls = _universal_urlopen(url+".gz")
+        except urllib2.HTTPError, hte:
+            if hte.code == 404:
+                # If no Packages/Sources.gz found, let's try just Packages/Sources
+                try:
+                    self._logger.debug("Compressed metadata not found. Fetching URL: %s" % url)
+                    fls = _universal_urlopen(url)
+                except urllib2.HTTPError, hte:
+                    if hte.code == 404:
+                        if ignore_errors:
+                            return
                         else:
                             raise
-                else:
-                    raise
-            #st=time.time()
-            dest.load(fls, base_url)
-            # Close socket after use
-            fls.close()
-            del fls
-            #print "%s: %f secs" % (url, time.time()-st)
+                    else:
+                        raise
+            else:
+                raise
+        dest.load(fls, base_url)
+        # Close socket after use
+        fls.close()
+        del fls
+
 
     def __make_urls(self, repoline):
         """The same as above, but only for one line"""
@@ -582,10 +593,6 @@ class AptRepoClient(LoggableObject):
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         return (match.group("base_url"), url_srcs, url_bins)
 
+
 if __name__ == "__main__":
-    import sys
-    tfl = open(sys.argv[1], "r")
-    mdata = AptRepoMetadataBase()
-    mdata.load(tfl)
-    mdata.store(sys.stdout)
-   
+    raise NotImplemented

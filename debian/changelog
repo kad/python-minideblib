@@ -1,3 +1,12 @@
+python-minideblib (0.6.21.29) unstable; urgency=low
+
+  * AptRepoClient: refactoring of loading repositories.
+  * AptRepoClient: type() -> isinstance().
+  * AptRepoClient: refactoring of filter methods.
+  * DpkgChangelog: parse_changelog can be asked to parse until specific version
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed,  7 May 2008 23:34:05 +0300
+
 python-minideblib (0.6.21.28) unstable; urgency=low
 
   * AptRepoClient: fixed regexp to match any empty space in sources.list
