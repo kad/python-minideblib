@@ -10,7 +10,7 @@ except ImportError:
     from distutils.core import setup
 
 
-version = "0.6.21.28"
+version = "0.6.21.29"
 
 setup (name = "minideblib",
     description = "Access to deb files and repositories",
