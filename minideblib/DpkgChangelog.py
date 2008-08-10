@@ -28,9 +28,7 @@
 
 import re
 from minideblib import DpkgVersion
-import types
 import rfc822
-import cStringIO as StringIO
 
 __revision__ = "r"+"$Revision$"[11:-2]
 __all__ = ['DpkgChangelog', 'DpkgChangelogEntry', 'DpkgChangelogException']
@@ -109,6 +107,7 @@ class DpkgChangelogEntry:
         self.attributes = {}
         self.entries = []
 
+
     def add_entry(self, entry):
         '''Utility function to add a changelog entry. Also takes care
         of extracting the bugs closed by this change and adding them to
@@ -155,6 +154,7 @@ class DpkgChangelog:
         self.distribution = None
         self.changedby = None
  
+
     def __get_next_nonempty_line(self, infile):
         "Return the next line that is not empty"
         self.lineno += 1
@@ -168,6 +168,7 @@ class DpkgChangelog:
             return line[:-1]
         else:
             return line
+
 
     def _parse_one_entry(self, infile):
 
@@ -211,7 +212,6 @@ class DpkgChangelog:
         # Commit last seen line
         if buf:
             entry.add_entry(buf.strip())
-            
 
         # Try and parse the last line
         em = EndMatcher.match(line)
@@ -234,9 +234,10 @@ class DpkgChangelog:
     def parse_changelog(self, changelog, since_ver = None):
         '''Parses changelog argument (could be file or string)
         and represents it's content as array of DpkgChangelogEntry'''
-        if type(changelog) is types.StringType:
+        if isinstance(changelog, basestring):
+            import StringIO
             fh = StringIO.StringIO(changelog)
-        elif type(changelog) is types.FileType:
+        elif hasattr(changelog, "readline") and callable(changelog.readline):
             fh = changelog
         else: 
             raise DpkgChangelogException, "Invalid argument type"
@@ -266,4 +267,3 @@ class DpkgChangelog:
             self.changedby = self.entries[0].changedby
         else:
             raise DpkgChangelogException, "Unable to get entries from changelog: %s" % last_err
-
