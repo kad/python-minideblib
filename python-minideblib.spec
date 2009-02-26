@@ -2,7 +2,7 @@
 %{!?pyver: %define pyver %(%{__python} -c "import sys ; print sys.version[:3]")}
 
 Name:           python-minideblib
-Version:        0.6.21.30
+Version:        0.6.21.31
 Release:        1%{?dist}
 Summary:        Python modules for access deb files and repositories
 
