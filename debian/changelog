@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.31) unstable; urgency=low
+
+  * DpkgChangelog: show line number in DpkgChangelogException
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu, 26 Feb 2009 19:32:58 +0200
+
 python-minideblib (0.6.21.30) unstable; urgency=low
 
   * DpkgChangelog: now can handle correctly unicode strings

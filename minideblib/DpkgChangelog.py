@@ -35,13 +35,14 @@ __all__ = ['DpkgChangelog', 'DpkgChangelogEntry', 'DpkgChangelogException']
 
 
 class DpkgChangelogException(Exception):
-    def __init__(self, msg):
+    def __init__(self, msg, lineno = 0):
         Exception.__init__(self)
         self.msg = msg
+        self.lineno = lineno
     def __str__(self):
-        return self.msg
+        return self.msg + (self.lineno and " at line %d" % self.lineno or "")
     def __repr__(self):
-        return self.msg
+        return self.msg + (self.lineno and " at line %d" % self.lineno or "")
 
 # Fixed settings, do not change these unless you really know what you are doing
 PackageRegex    = "[a-z0-9][a-z0-9.+-]+"        # Regular expression package names must comply with
@@ -175,14 +176,14 @@ class DpkgChangelog:
         line = self.__get_next_nonempty_line(infile)
         match = StartMatcher.match(line)
         if not match:
-            raise DpkgChangelogException, "Invalid first line"
+            raise DpkgChangelogException("Invalid first line", self.lineno)
 
         entry = DpkgChangelogEntry()
         entry.package = match.group("package")
         try:
             entry.version = DpkgVersion.DpkgVersion(match.group("version"))
         except Exception, e:
-            raise DpkgChangelogException, "Invalid version: %s" % e
+            raise DpkgChangelogException("Invalid version: %s" % e, self.lineno)
 
         entry.distribution = match.group("distribution").split()
 
@@ -190,12 +191,12 @@ class DpkgChangelog:
         for attr in match.group("attrs").split():
             am = AttrMatcher.match(attr)
             if not am:
-                raise DpkgChangelogException, "Invalid syntax for attribute"
+                raise DpkgChangelogException("Invalid syntax for attribute", self.lineno)
             entry.attributes[am.group("key")] = am.group("value")
 
         # Check for essential urgency attribute
         if not entry.attributes.has_key("urgency"):
-            raise DpkgChangelogException, "Missing urgency attribute"
+            raise DpkgChangelogException("Missing urgency attribute", self.lineno)
 
         # Read the changelog entries themselves
         line = self.__get_next_nonempty_line(infile)
@@ -216,16 +217,16 @@ class DpkgChangelog:
         # Try and parse the last line
         em = EndMatcher.match(line)
         if not em:
-            raise DpkgChangelogException, "Invalid line in changelog entry"
+            raise DpkgChangelogException("Invalid line in changelog entry", self.lineno)
 
         entry.changedby = em.group("changedby")
         try:
             entry.strdate = em.group("date")
             entry.date = rfc822.parsedate(entry.strdate)
             if not entry.date:
-                raise DpkgChangelogException, "Invalid date in changelog entry: %s" % entry.strdate
+                raise DpkgChangelogException("Invalid date in changelog entry: %s" % entry.strdate, self.lineno)
         except:
-            raise DpkgChangelogException, "Invalid date in changelog entry: %s" % entry.strdate
+            raise DpkgChangelogException("Invalid date in changelog entry: %s" % entry.strdate, self.lineno)
 
         # Return the parsed changelog entry
         return entry
@@ -240,7 +241,7 @@ class DpkgChangelog:
         elif hasattr(changelog, "readline") and callable(changelog.readline):
             fh = changelog
         else: 
-            raise DpkgChangelogException, "Invalid argument type"
+            raise DpkgChangelogException("Invalid argument type")
 
         pkg_name = None
 
@@ -250,7 +251,7 @@ class DpkgChangelog:
                 if since_ver:
                     if not pkg_name:
                         pkg_name = entry.package
-                    if pkg_name <> entry.package or entry.version <= since_ver:
+                    if pkg_name != entry.package or entry.version <= since_ver:
                         # if changelog contains entries for different source 
                         # package name or we already parsed version till which
                         # we asked to parse -> stop.
@@ -266,4 +267,4 @@ class DpkgChangelog:
             self.distribution = self.entries[0].distribution
             self.changedby = self.entries[0].changedby
         else:
-            raise DpkgChangelogException, "Unable to get entries from changelog: %s" % last_err
+            raise DpkgChangelogException("Unable to get entries from changelog: %s" % last_err, self.lineno)
