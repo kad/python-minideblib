@@ -565,25 +565,25 @@ class AptRepoClient(LoggableObject):
 
     def __make_urls(self, repoline):
         """The same as above, but only for one line"""
-        match = re.match("(?P<repo_type>deb|deb-src)\s+(?P<base_url>.+?)\s+(?P<repo>.+?)(?:\s+(?P<sections>.+))?$", repoline)
+        match = re.match(r"(?P<repo_type>deb|deb-src)\s+(?P<base_url>[\S]+?)/?\s+((?P<simple_repo>[\S]*?/)|(?P<repo>\S*?[^/\s])(?:\s+(?P<sections>[^/]+?)))\s*$", repoline)
         if not match:
             raise AptRepoException("Unable to parse: %s" % repoline)
        
         url_bins = []
         url_srcs = []
         repo_type = match.group("repo_type")
-        if match.group("repo").endswith("/") and not match.group("sections"):
+        if match.group("simple_repo"):
             if repo_type == "deb":
-                __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Packages"))
-                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), '') ]
+                __path = os.path.normpath(os.path.join("./" + match.group("simple_repo"), "Packages"))
+                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("simple_repo"), '') ]
             elif repo_type == "deb-src":
-                __path = os.path.normpath(os.path.join("./" + match.group("repo"), "Sources"))
-                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("repo"), '' ) ]
+                __path = os.path.normpath(os.path.join("./" + match.group("simple_repo"), "Sources"))
+                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("simple_repo"), '' ) ]
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         else:
             if repo_type == "deb":
-                for item in match.group("sections").split():
+                for item in re.split("\s+", match.group("sections")):
                     for arch in self._arch:
                         url_bins.append( (os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "binary-%s/Packages" % arch), match.group("repo"), item))
             elif repo_type == "deb-src":
