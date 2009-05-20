@@ -1,3 +1,9 @@
+python-minideblib (0.6.21.32) unstable; urgency=low
+
+  * Fix deb repository line parsing
+
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Wed, 20 May 2009 17:27:56 +0300
+
 python-minideblib (0.6.21.31) unstable; urgency=low
 
   * DpkgChangelog: show line number in DpkgChangelogException
