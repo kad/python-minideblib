@@ -1,11 +1,12 @@
 python-minideblib (0.6.21.33) unstable; urgency=low
 
-  * AptRepoClient: 
-    Catch all exceptions which might happen while interacting with network and 
-    rise as AptRepoException. 
-    Original exception store in original_exception variable of raised exception.
-    Use posixpath instead of os.path. Should fix usage under Windows
-  * DpkgChangelog: In case of parsing errors - provide more details in exception.
+  * AptRepoClient: Catch all exceptions which might happen while interacting
+    with network and rise as AptRepoException. 
+  * AptRepoException: Original exception store in original_exception variable 
+    of raised exception.
+  * DpkgChangelog: for parsing errors, provide more details in exception.
+  * AptRepoClient: Use posixpath instead of os.path. Should fix usage under 
+    Windows. Thanks to Chris Oliver (excid3@)
 
  -- Alexandr D. Kanevskiy <packages@bifh.org>  Sun, 13 Sep 2009 23:05:56 +0300
 
