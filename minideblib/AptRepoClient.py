@@ -33,7 +33,7 @@ from minideblib.DpkgControl import DpkgParagraph
 from minideblib.DpkgDatalist import DpkgOrderedDatalist
 from minideblib.DpkgVersion import DpkgVersion, VersionError
 from minideblib.LoggableObject import LoggableObject
-import re, urllib2, os, types, time
+import re, urllib2, types, time, posixpath
 
 try:
     set()
@@ -209,12 +209,12 @@ class AptRepoParagraph(DpkgParagraph):
         if self.__urls:
             return self.__urls
         if "filename" in self:
-            self.__urls = [os.path.join(self.base_url, self['filename'])]
+            self.__urls = [posixpath.join(self.base_url, self['filename'])]
             return self.__urls
         if "files" in self:
             self.__urls = []
             for elems in self.get_files():
-                self.__urls.append(os.path.join(self.base_url, self['directory'], elems[4]))
+                self.__urls.append(posixpath.join(self.base_url, self['directory'], elems[4]))
             return self.__urls
 
     def get_source(self):
@@ -574,21 +574,21 @@ class AptRepoClient(LoggableObject):
         repo_type = match.group("repo_type")
         if match.group("simple_repo"):
             if repo_type == "deb":
-                __path = os.path.normpath(os.path.join("./" + match.group("simple_repo"), "Packages"))
-                url_bins = [ (os.path.join(match.group("base_url"), __path), match.group("simple_repo"), '') ]
+                __path = posixpath.normpath(posixpath.join("./" + match.group("simple_repo"), "Packages"))
+                url_bins = [ (posixpath.join(match.group("base_url"), __path), match.group("simple_repo"), '') ]
             elif repo_type == "deb-src":
-                __path = os.path.normpath(os.path.join("./" + match.group("simple_repo"), "Sources"))
-                url_srcs = [ (os.path.join(match.group("base_url"), __path), match.group("simple_repo"), '' ) ]
+                __path = posixpath.normpath(posixpath.join("./" + match.group("simple_repo"), "Sources"))
+                url_srcs = [ (posixpath.join(match.group("base_url"), __path), match.group("simple_repo"), '' ) ]
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         else:
             if repo_type == "deb":
                 for item in re.split("\s+", match.group("sections")):
                     for arch in self._arch:
-                        url_bins.append( (os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "binary-%s/Packages" % arch), match.group("repo"), item))
+                        url_bins.append( (posixpath.join(match.group("base_url"), "dists", match.group("repo"), item, "binary-%s/Packages" % arch), match.group("repo"), item))
             elif repo_type == "deb-src":
                 for item in match.group("sections").split():
-                    url_srcs.append( (os.path.join(match.group("base_url"), "dists", match.group("repo"), item, "source/Sources"), match.group("repo"), item))
+                    url_srcs.append( (posixpath.join(match.group("base_url"), "dists", match.group("repo"), item, "source/Sources"), match.group("repo"), item))
             else:
                 raise AptRepoException("Unknown repository type: %s" % repo_type)
         return (match.group("base_url"), url_srcs, url_bins)
