@@ -111,9 +111,10 @@ def _get_available_versions(package, base_url, pkgcache):
 
 class AptRepoException(Exception):
     """Exception generated in error situations"""
-    def __init__(self, msg):
+    def __init__(self, msg, original_exception = None):
         Exception.__init__(self)
         self.msg = msg
+        self.original_exception = original_exception
     def __repr__(self):
         return self.msg
     def __str__(self):
@@ -552,11 +553,15 @@ class AptRepoClient(LoggableObject):
                         if ignore_errors:
                             return
                         else:
-                            raise
+                            raise AptRepoException("Unable to fetch: %s (HTTP Error code %d)" % (url, hte.code), hte)
                     else:
-                        raise
+                        raise AptRepoException("Unable to fetch: %s (HTTP Error code %d)" % (url, hte.code), hte)
             else:
-                raise
+                raise AptRepoException("Unable to fetch: %s (HTTP Error code %d)" % (url, hte.code), hte)
+        except Exception, gene:
+            # Generic exception
+            raise AptRepoException("Unable to fetch: %s (%s)" % (url, gene), hte)
+
         dest.load(fls, base_url)
         # Close socket after use
         fls.close()
