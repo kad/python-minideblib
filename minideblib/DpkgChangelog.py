@@ -30,7 +30,6 @@ import re
 from minideblib import DpkgVersion
 import rfc822
 
-__revision__ = "r"+"$Revision$"[11:-2]
 __all__ = ['DpkgChangelog', 'DpkgChangelogEntry', 'DpkgChangelogException']
 
 
@@ -176,7 +175,7 @@ class DpkgChangelog:
         line = self.__get_next_nonempty_line(infile)
         match = StartMatcher.match(line)
         if not match:
-            raise DpkgChangelogException("Invalid first line", self.lineno)
+            raise DpkgChangelogException("Invalid first line: %s" % line, self.lineno)
 
         entry = DpkgChangelogEntry()
         entry.package = match.group("package")
@@ -191,7 +190,7 @@ class DpkgChangelog:
         for attr in match.group("attrs").split():
             am = AttrMatcher.match(attr)
             if not am:
-                raise DpkgChangelogException("Invalid syntax for attribute", self.lineno)
+                raise DpkgChangelogException("Invalid syntax for attribute: %s" % attr, self.lineno)
             entry.attributes[am.group("key")] = am.group("value")
 
         # Check for essential urgency attribute
@@ -217,7 +216,7 @@ class DpkgChangelog:
         # Try and parse the last line
         em = EndMatcher.match(line)
         if not em:
-            raise DpkgChangelogException("Invalid line in changelog entry", self.lineno)
+            raise DpkgChangelogException("Invalid line in changelog entry: %s" % line, self.lineno)
 
         entry.changedby = em.group("changedby")
         try:
