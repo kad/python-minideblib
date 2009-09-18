@@ -6,7 +6,7 @@
 #
 # This module implements parser for Debian changelog files
 #
-# Copyright (C) 2005,2006 Alexandr Kanevskiy
+# Copyright (C) 2005-2009 Alexandr Kanevskiy
 #
 # Contact: Alexandr Kanevskiy <packages@bifh.org>
 #
@@ -49,28 +49,11 @@ VersionRegex    = "(?:[0-9]+:)?[a-zA-Z0-9~.+-]+" # Regular expression package ve
 
 # Regular expressions for various bits of the syntax used
 ClosesRegex     = "closes:\s*(?:bug)?#?\s?\d+(?:,\s?(?:bug)?#?\s?\d+)*"
-NBugRegex       = "Fixe[sd]:\s*NB#\d+(?:\s*,\s*NB#\d+)*"
-MBugRegex       = "Fixe[sd]:\s*MB#\d+(?:\s*,\s*MB#\d+)*"
 BugRegex        = "(\d+)"
-NMBugRegex      = "B#(\d+)"
-NReqImplRegex   = "Implemented:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
-NReqUpdRegex    = "Updated:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
-NReqPartRegex   = "Partial:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
-NReqDropRegex   = "Dropped:\s*NR#\d{1,6}(?:,\s*NR#\d{1,6})*"
-NReqRegex       = "R#(\d{1,6})"
 
 # Precompile the regular expressions
 ClosesMatcher    = re.compile(ClosesRegex, re.IGNORECASE)
 BugMatcher       = re.compile(BugRegex)
-NMBugMatcher     = re.compile(NMBugRegex)
-NBugMatcher      = re.compile(NBugRegex, re.IGNORECASE)
-MBugMatcher      = re.compile(MBugRegex, re.IGNORECASE)
-NReqImplMatcher  = re.compile(NReqImplRegex, re.IGNORECASE)
-NReqUpdMatcher   = re.compile(NReqUpdRegex, re.IGNORECASE)
-NReqPartMatcher  = re.compile(NReqPartRegex, re.IGNORECASE)
-NReqDropMatcher  = re.compile(NReqDropRegex, re.IGNORECASE)
-NReqMatcher      = re.compile(NReqRegex)
-
 
 # Changelog regexps
 StartRegex      = "(?P<package>%s) \((?P<version>%s)\) (?P<distribution>[\w-]+(?:\s+[\w-]+)*); (?P<attrs>.*)" % (PackageRegex, VersionRegex)
@@ -98,17 +81,12 @@ class DpkgChangelogEntry:
         self.strdate = ""
         self.changedby = ""
         self.bugsfixed = []
-        self.nbugsfixed = []
-        self.mbugsfixed = []
-        self.nreqsimplemented = []
-        self.nreqsupdated = []
-        self.nreqspartial = []
-        self.nreqsdropped = []
         self.attributes = {}
         self.entries = []
+        self.extra_keywords = {}
 
 
-    def add_entry(self, entry):
+    def add_entry(self, entry, extra_keywords = ()):
         '''Utility function to add a changelog entry. Also takes care
         of extracting the bugs closed by this change and adding them to
         the self.bugsfixed array.'''
@@ -117,42 +95,54 @@ class DpkgChangelogEntry:
         match = ClosesMatcher.search(entry)
         if match:
             self.bugsfixed.extend(BugMatcher.findall(match.group(0)))
-        # Check if we have a proper NBugs
-        match = NBugMatcher.search(entry)
-        if match:
-            self.nbugsfixed.extend(NMBugMatcher.findall(match.group(0)))
-        # Check if we have a proper MBugs
-        match = MBugMatcher.search(entry)
-        if match:
-            self.mbugsfixed.extend(NMBugMatcher.findall(match.group(0)))
-        # Check if we have implemented requirements
-        match = NReqImplMatcher.search(entry)
-        if match:
-            self.nreqsimplemented.extend(NReqMatcher.findall(match.group(0)))
-        # Check if we have updated requirements
-        match = NReqUpdMatcher.search(entry)
-        if match:
-            self.nreqsupdated.extend(NReqMatcher.findall(match.group(0)))
-        # Check if we have partially implemented requirements
-        match = NReqPartMatcher.search(entry)
-        if match:
-            self.nreqspartial.extend(NReqMatcher.findall(match.group(0)))
-        # Check if we have dropped requirements
-        match = NReqDropMatcher.search(entry)
-        if match:
-            self.nreqsdropped.extend(NReqMatcher.findall(match.group(0)))
+
+        # Check for extra keywords
+        for (kwd, kwre, itemre) in extra_keywords:
+            match = kwre.search(entry)
+            if match:
+                items = itemre.findall(match.group(0))
+                if items:
+                    if kwd in self.extra_keywords:
+                        self.extra_keywords[kwd].extend(items)
+                    else:
+                        self.extra_keywords[kwd] = items
         self.entries.append(entry)
 
 
 class DpkgChangelog:
-    '''Simple class to repsresent Debian changlog'''
-    def __init__(self):
+    '''Simple class to repsresent Debian changlog
+       By default it only able to parse standard Debian keywords.
+       If you want to parse your custom keywords provide extra_keywords
+       argument which is list of tuples, where tuple consists of
+       ( "keyword key", "regex of kw expression", "regex for item in match" )
+       "regex" can be string or re.compile() object.
+       E.g. for standard Debian 'Closes:" extra_keywords would be someting like:
+       [ ( "bugsfixed", "closes:\s*(?:bug)?#?\s?\d+(?:,\s?(?:bug)?#?\s?\d+)*", "(\d+)" ) ]
+    '''
+    def __init__(self, extra_keywords = () ):
         self.entries = []
         self.lineno = 0
         self.package = None
         self.version = None
         self.distribution = None
         self.changedby = None
+        self._extra_keywords = []
+        for row in extra_keywords:
+            if len(row) != 3 or not isinstance(row[0], basestring):
+                raise DpkgChangelogException("Invalid extra keyword specification %s" % row)
+            if isinstance(row[1], basestring):
+                kwre = re.compile(row[1], re.IGNORECASE)
+            elif type(row[1]) == re._pattern_type:
+                kwre = row[1]
+            else:
+                raise DpkgChangelogException("Invalid keyword regex for extra keyword %s" % row[0])
+            if isinstance(row[2], basestring):
+                itemre = re.compile(row[2], re.IGNORECASE)
+            elif type(row[2]) == re._pattern_type:
+                itemre = row[2]
+            else:
+                raise DpkgChangelogException("Invalid item regex for extra keyword %s" % row[0])
+            self._extra_keywords.append( (row[0], kwre, itemre) )
  
 
     def __get_next_nonempty_line(self, infile):
@@ -203,7 +193,7 @@ class DpkgChangelog:
         while line.startswith("  "):
             if line.startswith("  *"):
                 if buf:
-                    entry.add_entry(buf.strip())
+                    entry.add_entry(buf.strip(), self._extra_keywords)
                 buf = line[2:]
             else:
                 buf += "\n" + line[2:]
@@ -211,7 +201,7 @@ class DpkgChangelog:
 
         # Commit last seen line
         if buf:
-            entry.add_entry(buf.strip())
+            entry.add_entry(buf.strip(), self._extra_keywords)
 
         # Try and parse the last line
         em = EndMatcher.match(line)

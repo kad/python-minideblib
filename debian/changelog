@@ -7,8 +7,10 @@ python-minideblib (0.6.21.33) unstable; urgency=low
   * DpkgChangelog: for parsing errors, provide more details in exception.
   * AptRepoClient: Use posixpath instead of os.path. Should fix usage under 
     Windows. Thanks to Chris Oliver (excid3@)
+  * DpkgChangelog: removed hardcoded custom keywords. Now extra keywords can
+    be specified externally.
 
- -- Alexandr D. Kanevskiy <packages@bifh.org>  Sun, 13 Sep 2009 23:05:56 +0300
+ -- Alexandr D. Kanevskiy <packages@bifh.org>  Thu, 18 Sep 2009 22:12:04 +0300
 
 python-minideblib (0.6.21.32) unstable; urgency=low
 
