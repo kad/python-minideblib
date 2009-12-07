@@ -560,7 +560,7 @@ class AptRepoClient(LoggableObject):
                 raise AptRepoException("Unable to fetch: %s (HTTP Error code %d)" % (url, hte.code), hte)
         except Exception, gene:
             # Generic exception
-            raise AptRepoException("Unable to fetch: %s (%s)" % (url, gene), hte)
+            raise AptRepoException("Unable to fetch: %s (%s)" % (url, gene), gene)
 
         dest.load(fls, base_url)
         # Close socket after use
