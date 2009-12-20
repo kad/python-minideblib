@@ -3,8 +3,11 @@
 # Sample debian/rules that uses debhelper. 
 # This file is public domain software, originally written by Joey Hess.
 
+PYVER   := $(shell pyversions -vd)
+PYTHON  := python$(PYVER)
+
 build:
-	python setup.py build
+	$(PYTHON) setup.py build
 
 
 clean: 
@@ -18,7 +21,7 @@ install: build
 	dh_testroot
 	dh_clean -k
 	dh_installdirs
-	python setup.py install -O1 --skip-build --root debian/python-minideblib
+	$(PYTHON) setup.py install -O1 --skip-build --root debian/python-minideblib
 
 # Build architecture-independent files here.
 binary-indep: build install
