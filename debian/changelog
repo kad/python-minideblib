@@ -1,3 +1,10 @@
+python-minideblib (0.6.21.34) unstable; urgency=low
+
+  * Use pyversions. Thanks to Jari Tenhunen.
+  * Fix misstype in AptRepoClient exceptions handling.
+
+ -- Alexandr D. Kanevskiy <packges@bifh.org>  Mon, 21 Dec 2009 18:33:06 +0200
+
 python-minideblib (0.6.21.33) unstable; urgency=low
 
   * AptRepoClient: Catch all exceptions which might happen while interacting
