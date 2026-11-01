@@ -1,8 +1,28 @@
-Copyright 2005,2006 Alexandr Kanevskiy <packages@bifh.org>
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: minideblib
+Upstream-Contact: Alexander D. Kanevskiy <kad@bifh.org>
+Source: https://github.com/kad/python-minideblib
+Comment: Early versions of this library were inspired by mini-dinstall and the
+ Debian python tools; many thanks to their authors. The current code is an
+ independent implementation.
 
-Contains parts of code from mini-dinstall by:
-Copyright 2002,2003 Colin Walters <walters@debian.org>
+Files: *
+Copyright: 2005-2026 Alexander D. Kanevskiy <kad@bifh.org>
+License: GPL-2
 
-Licensed under the Gnu GPL.
+Files: debian/*
+Copyright: 2005-2026 Alexander D. Kanevskiy <kad@bifh.org>
+License: GPL-2
 
-See /usr/share/common-licenses/GPL on your Debian system.
+License: GPL-2
+ This program is free software; you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation; version 2 of the License.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ more details.
+ .
+ On Debian systems, the full text of the GNU General Public License version
+ 2 can be found in the file '/usr/share/common-licenses/GPL-2'.

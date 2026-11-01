@@ -1,0 +1,7 @@
+Tests: upstream-tests
+Depends: @, python3-pytest, python3-yaml, python3-zstandard
+Restrictions: allow-stderr
+
+Tests: smoke
+Depends: @
+Restrictions: allow-stderr
