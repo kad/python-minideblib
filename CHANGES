@@ -1,0 +1,179 @@
+Unreleased
+==========
+
+minideblib 0.7.0 (2026-11-01)
+=============================
+
+A rewrite for current Python and Debian archives. This release breaks
+compatibility with 0.6.x.
+
+Breaking changes
+----------------
+
+* Python 3.11 or later is required. Python 2 and older Python 3 versions are
+  no longer supported.
+* Modules were renamed to snake_case under the minideblib package:
+  DpkgControl -> control, DpkgChangelog -> changelog, and so on. DpkgDatalist,
+  DpkgVarlist, OrderedDict and LoggableObject are gone; the standard
+  logging module and dict types are used instead.
+* AptRepoClient is replaced by minideblib.repo.client.RepoClient, and
+  DpkgDebPackage by minideblib.deb.DebPackage. Both have new interfaces and
+  raise typed exceptions (FetchError, DebError, DscError, ...).
+* DpkgVersion was reimplemented from the Debian Policy rules as
+  minideblib.version.Version (comparison with epochs, tildes and revisions).
+  VersionError messages quote at most 40 characters of an invalid version.
+  Parsing is permissive like dpkg (an upstream version may start with a
+  letter); Version(..., strict=True) and compare(..., strict=True) reject
+  an upstream version that does not start with a digit.
+* signed.py (SignedFile, DebianSigVerifier, GPGSigVerifier) was removed.
+  Signature verification is not provided.
+* The modules gpg, safewrite and utils and the ChangeFile class (with
+  FileEntry and ChangeFileError) were removed as unused. The .dsc and
+  checksum file verification moved to the new minideblib.checksums module
+  (parse_multiline_hashes, verify_file, ChecksumError).
+* control and checksums are independent implementations. Malformed control
+  data raises control.ControlError (a ValueError) whose message starts with
+  "line N:"; one leading byte order mark is ignored, and CR, LF and CRLF end
+  lines for every kind of input, streams included.
+* Checksum handling is stricter. The size column of a checksum block is an
+  optional "-" followed by 1 to 20 ASCII digits: "+5", "1_000", non-ASCII
+  digits and longer numbers are malformed. A backslash is no longer allowed
+  in a .dsc file name. verify_file() raises ChecksumError for an empty or
+  unknown algorithm list, reports OS errors during verification as the
+  caller's error type (DscError for Dsc.verify), and never follows a
+  symlink or blocks on a FIFO or device, even one swapped in after the
+  first check.
+* Packaging moved from setup.py to pyproject.toml (hatchling); setup.py,
+  setup.cfg and the Python 2 files were removed.
+
+New
+---
+
+* minideb command line tool: suites, components, archs, list, show, versions,
+  search, files, appstream, icons, source, dsc and deb commands, short aliases,
+  --json output, -v/-vv logging, --probe, global -c/-a scoping, and a
+  self-contained minideb.pyz. Exit status 1 means nothing found (show,
+  files, versions, source, suites, appstream --id/--package, deb field);
+  list and search exit with 0 on an empty result. Index records with an
+  invalid Version are skipped with a warning.
+  The pyz build honours SOURCE_DATE_EPOCH within the zip timestamp range
+  (1980-01-01 to 2107-12-31); other values stop the build with a one-line
+  error.
+* -c/-a narrow the configured sources entries: with --sources, "list -c X"
+  for a suite whose entries do not list component X now gives an empty
+  result and a warning (previously X was queried anyway); use
+  "--url URL list -c X" to query a component that is not configured. A
+  scoped architecture that Release does not list is reported as "not listed
+  in Release" rather than as scoped away.
+* Sources entries for the same URI and suite are merged; an entry without
+  components (or without an architecture restriction) keeps the merged
+  entry unrestricted, so "deb URI suite" plus "deb URI suite main" queries
+  every component listed in Release.
+* Release-driven repository discovery: no directory listings are needed,
+  suites containing "/" work, and file hashes from Release are verified.
+  SHA256 or stronger is required: indices or .dsc files listed only with
+  MD5/SHA-1 are rejected unless verification is turned off (--no-verify).
+* Fetching refuses https -> http redirects, credentials in URLs (also in
+  redirect targets) and ".." components in file:// URLs (also
+  percent-encoded).
+* Repository paths from Release, Packages (Filename) and Sources
+  (Directory, file names) and suite names are checked before a URL is
+  built: a ".." segment, a leading "/", a backslash or NUL is refused also
+  when percent-encoded (repeatedly decoded, e.g. %2e%2e or %252e%252e), and
+  so are encoded separators (%2f, %5c, %00). Other escapes such as %2B or
+  %3a stay valid. An unsafe or empty suite raises ReleaseError (naming at
+  most 40 characters of it) without any request; sources entries are
+  checked when used, not when parsed.
+* deb822 .sources files and one-line sources.list entries. One-line
+  entries may separate their fields with any mix of spaces and tabs (also
+  around the [options] block).
+* Acquire-By-Hash and flat repositories.
+* Packages, Sources and Contents indices; DEP-11 AppStream metadata and icons
+  (optional PyYAML).
+  A Contents line is split into path and location on spaces and tabs
+  only; other whitespace (U+00A0, form feed, ...) belongs to the path.
+* Source packages: .dsc parsing, hash-checked download and verification.
+  SourceRecord.files lists each file with the strongest hash the Sources
+  stanza gives for it (Checksums-Sha512, -Sha256, -Sha1, then Files), the
+  same order fetch_dsc verifies in.
+* Compression: gzip, bzip2, xz, lzma and zstd (native on Python 3.14+,
+  otherwise the optional zstandard).
+  The output size limit (max_size) also applies to uncompressed data.
+  gzip input must contain at least one complete member: empty or zero-only
+  data and a truncated first member raise DecompressError; zero padding
+  after a complete member is still ignored.
+  The xz/lzma decoder runs with a memory limit (max_size clamped to
+  128 MiB .. 1 GiB): a stream whose header asks for a larger dictionary
+  raises DecompressionLimitError instead of allocating it.
+* Safe .deb extraction (path, link and size checks) and a dpkg-deb style
+  subset: -I, -e, -c, -x, -f.
+  An ar archive whose odd-sized last member lacks its padding byte is
+  rejected as truncated (ArError).
+  The debian-binary member must hold format 2.x (any minor version);
+  other formats and malformed content raise DebError.
+  "minideb deb ctrl", "minideb deb extract" and DebPackage.extract() refuse
+  a destination directory that is a symlink; "deb ctrl" does not follow
+  symlinks below it (a symlinked file or directory is refused) and replaces
+  existing regular files instead of writing into them. Only the last
+  component of the destination is checked: symlinks in the directories
+  leading to it are followed (they are the caller's choice).
+  DebPackage.extract() resolves relative symlink targets up front, following
+  the archive's own symlinks, and rejects a link that would point outside
+  the destination before anything is written.
+* minideblib.MinidebError, the common base class of the exceptions the
+  library raises for bad data: malformed control data, indices, Release,
+  changelogs (changelog.ChangelogError), sources files
+  (sources.SourcesError, also for a file that is not valid UTF-8), .deb and
+  .dsc files, versions, compressed data and DEP-11 YAML, unusable index
+  records (repo.client.RepoError), failed downloads and hash checks. The
+  concrete classes keep their other bases such as ValueError;
+  DebPackage.read() raises deb.MissingMemberError, a DebError and KeyError.
+  Not covered: programmer errors (wrong argument types, an unknown probe
+  set or index kind), OSError from local file access, KeyError for a
+  missing Paragraph field and errors raised by caller-supplied objects.
+* Type annotations and py.typed; runnable examples in examples/.
+* Native Debian packaging, an RPM spec for Fedora and openSUSE, a man page, CI
+  and tag-driven releases. The workflows pin every action to a commit SHA;
+  Dependabot proposes weekly pin updates.
+
+Fixed
+-----
+
+Issues of the old GitHub tracker:
+
+* #1 DpkgSourceControl choked on DOS newlines: control files with CRLF line
+  endings are parsed (regression test).
+* #2 DpkgParagraph.load() truncated the last character of every line: fixed
+  (regression test).
+* #3 multi-line fields such as Binary are now available as folded text or
+  lists via Paragraph.get_folded() / get_list(); covered by the .dsc
+  wrapped-Binary tests.
+* #4 network errors are retried: Fetcher retries transient failures
+  (timeouts, 5xx, 429, truncated bodies) with backoff and keeps the last
+  status in FetchError (regression tests). Fetcher.cancel() stops the
+  retries of the requests in progress (they raise FetchCancelled, a
+  FetchError); the backoff waits are interruptible.
+* Backoff waits are controlled with Fetcher(sleep=...) and Fetcher.cancel();
+  patching time.sleep no longer has an effect.
+* Ctrl-C while RepoClient.suites() probes suites returns at once: probes run
+  on daemon threads, queued probes are dropped and in-flight retries are
+  cancelled, so neither the call nor interpreter exit waits for them.
+
+Known limitations
+-----------------
+
+* The Release/InRelease signature is not verified; only the hashes listed in
+  Release are checked. See TODO.md.
+* DebPackage.extract() and "minideb deb extract" refuse symlinks with an
+  absolute target (fail closed), so many real packages are refused by
+  default. skip_absolute_symlinks=True / --skip-absolute-symlinks leaves
+  such links out (one warning each) and extracts the rest; other unsafe
+  members, and hard links to a skipped symlink, are still refused. Hard
+  links must point to an earlier regular member and member mtimes must be
+  finite and in [0, 2**37); DebPackage.files() and "minideb deb ls" list an
+  invalid mtime as 0.
+
+Older releases
+--------------
+
+See debian/changelog for the history of the 0.6.x series.
