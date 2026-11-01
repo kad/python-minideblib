@@ -1,0 +1,214 @@
+.TH MINIDEB 1 "2026-11-01" "minideblib 0.7.0" "User Commands"
+.SH NAME
+minideb \- query APT repositories and inspect Debian packages
+.SH SYNOPSIS
+.B minideb
+.RI [ OPTIONS ]
+.I COMMAND
+.RI [ ARGS ]
+.br
+.B minideb
+.B deb
+.I DEB_COMMAND
+.RI [ ARGS ]
+.br
+.B minideb
+.B dsc
+.I DSC_COMMAND
+.RI [ ARGS ]
+.SH DESCRIPTION
+.B minideb
+is the command line front end of the minideblib Python library.
+It reads the indexes of APT repositories (Release, Packages, Sources,
+Contents and DEP-11 metadata) and inspects
+.B .deb
+and
+.B .dsc
+files.
+.PP
+Repositories are given with
+.B \-\-url
+or taken from the APT sources configuration.
+Only the file hashes listed in Release are checked; the Release or InRelease
+signature is
+.B not
+verified, so repository metadata is unauthenticated.
+.SH GLOBAL OPTIONS
+The global options may be given before or after the command.
+A value given after the command wins, \fB\-v\fR counts add up, and
+\fB\-\-url\fR, \fB\-c\fR and \fB\-a\fR given after the command extend the
+lists given before it.
+.TP
+.BR \-h ", " \-\-help
+Show the help message and exit.
+.TP
+.B \-\-version
+Show the program version and exit.
+.TP
+.BI \-\-url " URL"
+Repository base URL (repeatable).
+Mutually exclusive with \fB\-\-sources\fR.
+.TP
+.BI \-\-sources " PATH"
+A sources.list or deb822 .sources file, or a directory of them (default:
+/etc/apt/sources.list and /etc/apt/sources.list.d).
+.TP
+.BR \-c ", " \-\-component " \fICOMP\fR"
+Only read this component (repeatable; default: all).
+.TP
+.BR \-a ", " \-\-arch " \fIARCH\fR"
+Only read this architecture (repeatable; default: all).
+.TP
+.B \-\-no\-verify
+Skip the check of index hashes. Without it a SHA256 or stronger hash is
+required: an index or \fB.dsc\fR listed only with MD5 or SHA\-1 is rejected.
+.TP
+.BR \-j ", " \-\-json
+Write one JSON document to standard output.
+.TP
+.BI \-\-timeout " SECONDS"
+Network timeout.
+.TP
+.BI \-\-retries " N"
+Number of network retries.
+.TP
+.BR \-v ", " \-\-verbose
+Log steps to standard error; \fB\-vv\fR also logs requests and details.
+.TP
+.BR \-q ", " \-\-quiet
+Hide warnings (errors are always shown).
+.SH COMMANDS
+Aliases are given in parentheses.
+.TP
+.BR suites " (" su ) " [\-\-suite NAME] [\-\-probe WHICH | \-\-no\-probe]"
+List suites (probed for \fB\-\-url\fR).
+.TP
+.BR components " (" comps ) " SUITE"
+List the components of a suite.
+.TP
+.BR archs " (" arch ) " SUITE"
+List the architectures of a suite.
+.TP
+.BR list " (" ls ) " SUITE [\-c COMP]... [\-a ARCH]... [\-\-source]"
+List the packages of a suite.
+The own options of \fBlist\fR (\fB\-c\fR, \fB\-a\fR), \fBfiles\fR (\fB\-a\fR),
+\fBappstream\fR (\fB\-c\fR, \fB\-a\fR) and \fBicons\fR (\fB\-c\fR) are repeatable and
+replace the global ones for that command.
+.TP
+.BR show " (" sh ) " SUITE PACKAGE"
+Show the control data of a package.
+.TP
+.BR versions " (" ver ) " PACKAGE [\-\-suite NAME] [\-\-probe WHICH | \-\-no\-probe]"
+Show the versions of a package in all suites.
+.TP
+.BI \-\-suite " NAME"
+(\fBsuites\fR, \fBversions\fR) Probe this extra suite (repeatable).
+.TP
+.BI \-\-probe " WHICH"
+(\fBsuites\fR, \fBversions\fR) Candidate suites to probe for \fB\-\-url\fR, because many
+archives do not allow directory listings.
+\fIWHICH\fR is \fBall\fR (the default), \fBdebian\fR (stable, stable\-updates,
+stable\-backports, testing), \fBubuntu\fR (the latest release and the two latest LTS
+releases, each with \-updates, \-security and \-backports) or \fBnone\fR (only the
+\fB\-\-suite\fR names).
+Probing costs up to two requests (InRelease, then Release) per candidate.
+Only used with a single \fB\-\-url\fR; with several \fB\-\-url\fR or with
+\fB\-\-sources\fR it is ignored and only the \fB\-\-suite\fR names (or the configured
+suites) are used.
+.TP
+.B \-\-no\-probe
+(\fBsuites\fR, \fBversions\fR) Same as \fB\-\-probe none\fR.
+.TP
+.BR search " (" find ) " SUITE PATTERN"
+Search package names and descriptions.
+The pattern is a substring, or a glob with * or ? (names only).
+.TP
+.BR files " (" contents ) " SUITE PATH [\-a ARCH]..."
+Find the package providing a file, using the Contents indexes.
+These are large downloads; scope them with \fB\-c\fR and \fB\-a\fR.
+.TP
+.BR appstream " (" as ) " SUITE [\-\-id ID | \-\-package NAME | \-\-search TEXT] [\-\-locale LOC]"
+List DEP-11 (AppStream) components.
+Needs PyYAML.
+\fB\-\-search\fR is a case\-insensitive substring of the id, package, name or summary.
+\fB\-\-locale\fR selects the locale for name and summary (default: C).
+Exit status 1 when \fB\-\-id\fR or \fB\-\-package\fR matches nothing.
+.TP
+.B icons SUITE [\-c COMP]...
+List DEP-11 icon tarballs (path, icon size, bytes).
+.TP
+.BR source " (" src ) " SUITE PACKAGE [\-\-version V]"
+Show the .dsc of a source package (hash-checked download).
+.TP
+.B dsc info FILE
+Print the key fields of a .dsc file.
+.TP
+.B dsc files FILE
+List the files of a .dsc with size and hashes.
+.TP
+.B dsc verify FILE [\-\-dir DIR]
+Check the size and hashes of the listed files.
+Exit status 2 on a mismatch or a missing file.
+.TP
+.BR "deb info" " (" i ) " FILE"
+Print the control fields (like \fBdpkg\-deb \-I\fR).
+.TP
+.BR "deb ctrl" " (" control ) " FILE DIR"
+Extract the control files to DIR (like \fBdpkg\-deb \-e\fR).
+Existing regular files are replaced; a symlink as an entry below DIR or as a
+directory below DIR is refused (exit status 2).
+.TP
+.BR "deb ls" " (" list ) " FILE"
+List the contents, tar style (like \fBdpkg\-deb \-c\fR).
+.TP
+.BR "deb extract" " (" x ) " FILE DIR [\-\-max\-size BYTES] [\-\-skip\-absolute\-symlinks]"
+Safely extract the data to DIR (like \fBdpkg\-deb \-x\fR).
+Paths and links that would leave DIR are refused, and then nothing is extracted.
+This includes symlinks with an absolute target, which many packages ship;
+\fB\-\-skip\-absolute\-symlinks\fR leaves such links out (with a warning for each) and
+extracts the rest.
+For \fBdeb ctrl\fR and \fBdeb extract\fR, DIR is created with its missing
+parents. DIR itself must not be a symlink; symlinks in the directories leading
+to it are followed, as they are chosen by the caller and not by the package.
+A local user who can write to a parent of DIR could swap DIR after the check:
+extract into a private directory.
+.TP
+.BR "deb field" " (" f ) " FILE [FIELD...]"
+Print fields (like \fBdpkg\-deb \-f\fR).
+If a field is missing, the ones found are printed and the exit status is 1.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Nothing found: \fBshow\fR, \fBfiles\fR, \fBversions\fR, \fBsource\fR and \fBsuites\fR
+with an empty result, \fBappstream \-\-id\fR/\fB\-\-package\fR matching nothing, and
+\fBdeb field\fR with a missing field.
+Nothing is written to standard output then (also with \fB\-\-json\fR, except that
+\fBdeb field\fR without \fB\-\-json\fR prints the fields it found).
+\fBlist\fR and \fBsearch\fR exit with 0 on an empty result.
+.TP
+.B 2
+Usage, network or data error.
+.SH FILES
+.TP
+.I /etc/apt/sources.list
+.TQ
+.I /etc/apt/sources.list.d/
+Default repository configuration, used when neither \fB\-\-url\fR nor
+\fB\-\-sources\fR is given.
+.SH EXAMPLES
+.nf
+minideb \-\-url http://deb.debian.org/debian components stable
+minideb \-\-url http://archive.ubuntu.com/ubuntu list noble \-c main \-a amd64
+minideb \-\-url http://deb.debian.org/debian source stable hello
+minideb deb info package.deb
+minideb dsc verify hello_2.10\-3.dsc
+.fi
+.SH SEE ALSO
+.BR dpkg\-deb (1),
+.BR sources.list (5),
+.BR deb822 (5)
+.SH AUTHOR
+Alexander D. Kanevskiy <kad@bifh.org>

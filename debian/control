@@ -1,14 +1,43 @@
 Source: python-minideblib
+Section: python
 Priority: optional
-Section: devel
-Maintainer: Alexandr D. Kanevskiy <packages@bifh.org>
-Build-Depends-Indep: debhelper (>= 4.1.25), python-setuptools, python-central
-Standards-Version: 3.7.2
-XS-Python-Version: >= 2.3
+Maintainer: Alexander D. Kanevskiy <kad@bifh.org>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-hatchling,
+ python3-pytest,
+ python3-yaml,
+ python3-zstandard,
+Standards-Version: 4.7.2
+Homepage: https://github.com/kad/python-minideblib
+Vcs-Git: https://github.com/kad/python-minideblib.git
+Vcs-Browser: https://github.com/kad/python-minideblib
+Rules-Requires-Root: no
 
-Package: python-minideblib
+Package: python3-minideblib
 Architecture: all
-Depends: ${python:Depends}
-XB-Python-Version: >= 2.3
-Description: Small python library of classes, that simplify
- tasks for handling Debian source and binary packages
+Multi-Arch: foreign
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+Recommends:
+ python3-yaml,
+ python3-zstandard,
+Provides:
+ python-minideblib,
+Replaces:
+ python-minideblib (<< 0.7.0),
+Breaks:
+ python-minideblib (<< 0.7.0),
+Description: Python library and CLI for Debian package metadata
+ minideblib is a small Python 3 library for handling Debian source and
+ binary packages: control files, changelogs and .dsc files,
+ version comparison, and .deb and ar archives. It can also read APT
+ repository indexes (Release, Packages, Sources, Contents, DEP-11).
+ .
+ The package also ships the minideb command, which queries APT
+ repositories and inspects .deb and .dsc files. PyYAML (DEP-11) and
+ zstandard (.zst indexes) are optional.

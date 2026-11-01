@@ -1,3 +1,19 @@
+python-minideblib (0.7.0) UNRELEASED; urgency=medium
+
+  * Modernize the library for Python 3.11 and later; Python 2 is no longer
+    supported.
+  * Add the minideb command line tool to query APT repositories and inspect
+    .deb and .dsc files.
+  * Add pure-Python .deb, ar, compression, Release/Packages/Sources index,
+    DEP-11 (AppStream) and signature-aware helpers, with type annotations.
+  * Build with hatchling from pyproject.toml; switch to native packaging with
+    dh-python and pybuild (source format 3.0 (native)).
+  * Rename the binary package to python3-minideblib, with
+    Provides/Replaces/Breaks on python-minideblib.
+  * Add a man page, DEP-5 copyright file and an autopkgtest.
+
+ -- Alexander D. Kanevskiy <kad@bifh.org>  Sun, 01 Nov 2026 22:09:14 +0200
+
 python-minideblib (0.6.21.34) unstable; urgency=low
 
   * Use pyversions. Thanks to Jari Tenhunen.

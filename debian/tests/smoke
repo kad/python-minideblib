@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+minideb --version
+minideb deb --help >/dev/null
+python3 -c "import minideblib; print(minideblib.__version__)"

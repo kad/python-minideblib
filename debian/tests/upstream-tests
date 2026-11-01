@@ -1,0 +1,15 @@
+#!/bin/sh
+# Run the upstream test suite against the installed module (no network).
+set -e
+src="$(pwd)"
+cd "$AUTOPKGTEST_TMP"
+cp -r "$src/tests" tests
+exec python3 -m pytest -p no:cacheprovider -m "not network" \
+    --ignore=tests/test_no_vendor_refs.py \
+    --ignore=tests/test_typing_marker.py \
+    --ignore=tests/test_workflows.py \
+    --ignore=tests/test_pyz.py \
+    --ignore=tests/test_makefile.py \
+    --ignore=tests/test_check_release.py \
+    --ignore=tests/test_examples.py \
+    tests
