@@ -1,0 +1,44 @@
+# git-cliff configuration. Used by `make changelog` and the release workflow.
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here.
+"""
+body = """
+{% if version -%}
+## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## Unreleased
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | upper_first | trim }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = false
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "(?i)^feat", group = "<!-- 0 -->Features" },
+  { message = "(?i)^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "(?i)^refactor", group = "<!-- 2 -->Refactoring" },
+  { message = "(?i)^perf", group = "<!-- 3 -->Performance" },
+  { message = "(?i)^docs?", group = "<!-- 4 -->Documentation" },
+  { message = "(?i)^build", group = "<!-- 5 -->Build" },
+  { message = "(?i)^test", group = "<!-- 6 -->Tests" },
+  { message = "(?i)^chore", group = "<!-- 7 -->Chores" },
+  { message = ".*", group = "<!-- 8 -->Other changes" },
+]
