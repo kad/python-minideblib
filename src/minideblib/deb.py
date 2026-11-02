@@ -23,10 +23,11 @@ from .control import Paragraph, parse_paragraphs
 from .errors import MinidebError
 
 __all__ = [
+    "DebEntryLimitError",
     "DebError",
     "DebFile",
-    "DebPackage",
     "DebMemberTooLargeError",
+    "DebPackage",
     "DebSizeLimitError",
     "MissingMemberError",
     "decompress",
@@ -56,6 +57,10 @@ class DebSizeLimitError(DebError, DecompressionLimitError):
 
 class DebMemberTooLargeError(DebSizeLimitError):
     """:meth:`DebPackage.read`: the member is larger than the *max_size* given."""
+
+
+class DebEntryLimitError(DebSizeLimitError):
+    """:meth:`DebPackage.files`: the data archive has more than *max_entries* entries."""
 
 
 class MissingMemberError(DebError, KeyError):
@@ -265,13 +270,14 @@ class DebPackage:
 
         An mtime that is not finite or outside ``[0, 2**37)`` is listed as 0.
         With *max_entries*, more entries than that raise
-        :class:`DebSizeLimitError` (nothing is returned).
+        :class:`DebEntryLimitError` (a :class:`DebSizeLimitError`; nothing
+        is returned).
         """
         out: list[DebFile] = []
         with self._tar() as tf, _tar_errors():
             for ti in tf:
                 if max_entries is not None and len(out) >= max_entries:
-                    raise DebSizeLimitError(f"more than {max_entries} entries in the data archive")
+                    raise DebEntryLimitError(f"more than {max_entries} entries in the data archive")
                 out.append(
                     DebFile(
                         ti.name,

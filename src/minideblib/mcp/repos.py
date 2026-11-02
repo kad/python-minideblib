@@ -27,6 +27,7 @@ from typing import TypeVar
 
 from minideblib.mcp.protocol import ToolCall, ToolError
 from minideblib.mcp.startup import RepositorySpec, ServerConfig, StartupError, check_url
+from minideblib.mcp.toolkit import json_size
 from minideblib.repo.client import DEFAULT_CACHE_BUDGET, Probe, RepoClient
 from minideblib.repo.fetch import Fetcher, HostNotAllowed, redact_url
 
@@ -104,7 +105,8 @@ def clean_value(value: object, limit: int, depth: int = 0, max_items: int = 500)
 
     Strings (also mapping keys) go through :func:`clean_text`; numbers,
     booleans and None stay (non-finite floats become strings); other objects
-    become their cleaned ``str``. Lists and mappings keep at most
+    become their cleaned ``str``. A key equal to an earlier one once cleaned
+    gets the suffix ``…[i]`` (*i* its position). Lists and mappings keep at most
     *max_items* entries (a marker notes the rest); nesting deeper than 32
     levels is cut.
     """
@@ -122,7 +124,10 @@ def clean_value(value: object, limit: int, depth: int = 0, max_items: int = 500)
             if i >= max_items:
                 out["…"] = f"[{len(value) - max_items} more]"
                 break
-            out[clean_text(str(key), 200)] = clean_value(item, limit, depth + 1, max_items)
+            name = clean_text(str(key), 200)
+            if name in out:  # two keys that differ only in removed characters
+                name = f"{name}…[{i}]"
+            out[name] = clean_value(item, limit, depth + 1, max_items)
         return out
     if isinstance(value, list | tuple):
         items = [clean_value(v, limit, depth + 1, max_items) for v in value[:max_items]]
@@ -135,10 +140,6 @@ def clean_value(value: object, limit: int, depth: int = 0, max_items: int = 500)
 def error_text(exc: BaseException) -> str:
     """A safe one-line message for *exc*: credentials redacted, cleaned, bounded."""
     return clean_text(redact_url(str(exc)).replace("\n", " "), 500)
-
-
-def _json_size(value: object) -> int:
-    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
 
 
 def page(
@@ -161,7 +162,7 @@ def page(
     truncated = False
     for item in items[offset : offset + limit]:
         rendered = render(item)
-        size = _json_size(rendered)
+        size = json_size(rendered)
         if out and used + size > budget:
             truncated = True
             break

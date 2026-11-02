@@ -6,11 +6,13 @@
 Builders for the JSON schema fragments of tool arguments (:func:`string`,
 :func:`strings`, :func:`schema`, :data:`LIMIT`, :data:`OFFSET`) and
 accessors for validated arguments (:func:`opt_str`, :func:`req_str`,
-:func:`int_arg`), plus the paging and text length limits the tools share.
+:func:`int_arg`), plus the paging and text length limits the tools share
+and :func:`json_size`, the size results are budgeted by.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 
 from minideblib.mcp.protocol import ToolError
@@ -23,6 +25,7 @@ __all__ = [
     "OFFSET",
     "SHORT_LIMIT",
     "int_arg",
+    "json_size",
     "opt_str",
     "req_str",
     "schema",
@@ -36,6 +39,11 @@ MAX_LIMIT = 500
 FIELD_LIMIT = 4000
 #: longest short text (names, short descriptions, list items)
 SHORT_LIMIT = 300
+
+
+def json_size(value: object) -> int:
+    """Bytes of *value* as compact UTF-8 JSON (as results are sized against budgets)."""
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
 
 
 def string(description: str, max_length: int = 256) -> dict[str, object]:

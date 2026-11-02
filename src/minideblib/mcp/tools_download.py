@@ -59,7 +59,7 @@ from minideblib.checksums import ChecksumError, is_weak
 from minideblib.dsc import Dsc
 from minideblib.errors import MinidebError
 from minideblib.mcp.protocol import Tool, ToolCall, ToolError
-from minideblib.mcp.repos import RepoManager, _json_size, clean_text, clean_value, error_text
+from minideblib.mcp.repos import RepoManager, clean_text, clean_value, error_text
 from minideblib.mcp.safeio import (
     NewFile,
     UnsafeNameError,
@@ -71,6 +71,7 @@ from minideblib.mcp.safeio import (
 from minideblib.mcp.toolkit import (
     FIELD_LIMIT,
     SHORT_LIMIT,
+    json_size,
     opt_str,
     req_str,
     schema,
@@ -131,6 +132,12 @@ class _Item:
     def fail(self, message: str) -> None:
         self.status = "error"
         self.message = message
+
+
+def _file_error(item: _Item, exc: BaseException) -> str:
+    """The message of a failed download of *item*, naming the file instead of its URL."""
+    text = redact_url(str(exc)).replace(redact_url(item.spec.url), item.spec.name)
+    return clean_text(text.replace("\n", " "), _PROBLEM_LIMIT)
 
 
 def _opt_list(args: dict[str, object], name: str, most: int) -> list[str] | None:
@@ -202,7 +209,9 @@ class DownloadTools:
             try:
                 with self.manager.fetcher.scope(call.token, deadline):
                     result = fn(scoped)
-                return self._bounded(cast(dict[str, object], clean_value(result, FIELD_LIMIT)))
+                # the slack keeps truncation markers of FIELD_LIMIT values whole
+                swept = clean_value(result, FIELD_LIMIT + 64)
+                return self._bounded(cast(dict[str, object], swept))
             except ToolError:
                 raise
             except FetchCancelled:
@@ -218,7 +227,7 @@ class DownloadTools:
 
     def _bounded(self, result: dict[str, object]) -> dict[str, object]:
         """*result* within the response budget: compact file entries, then fewer."""
-        if _json_size(result) <= self.budget:
+        if json_size(result) <= self.budget:
             return result
         files = result.get("files")
         if not isinstance(files, list):
@@ -229,7 +238,7 @@ class DownloadTools:
             if isinstance(f.get("message"), str):
                 f["message"] = clean_text(f["message"], 120)
         out = {**result, "files": compact, "compact": True}
-        while _json_size(out) > self.budget and compact:
+        while json_size(out) > self.budget and compact:
             compact.pop()
             out["files_omitted"] = len(files) - len(compact)
         return out
@@ -282,7 +291,11 @@ class DownloadTools:
 
     @contextlib.contextmanager
     def _target(self, root: WriteRoot, parts: list[str]) -> Generator[tuple[WriteRoot, int]]:
-        """``(target directory, stale files removed)`` below *root*, open."""
+        """``(target directory, stale files removed)`` below *root*, open.
+
+        If the body fails, the subdirectories created for it are removed again
+        when empty.
+        """
         try:
             target = root.subdir(parts)
         except UnsafeNameError as exc:  # already checked; kept as a backstop
@@ -294,8 +307,12 @@ class DownloadTools:
                 raise ToolError(
                     f"{clean_text(target.path, FIELD_LIMIT)}: not writable by the current user"
                 )
-            removed = target.cleanup_stale(STALE_AGE)
-            yield target, removed
+            try:
+                removed = target.cleanup_stale(STALE_AGE)
+                yield target, removed
+            except BaseException:
+                root.remove_created(parts, target.created)
+                raise
 
     # -- planning ---------------------------------------------------------------------
 
@@ -534,6 +551,13 @@ class DownloadTools:
                 "subdirectory": None if not parts else clean_text("/".join(parts), FIELD_LIMIT),
                 "temp_directory_used": temp,
             }
+            errors = [i for i in items if i.status == "error"]
+            if errors and len(errors) == len(items):  # inside: created directories go again
+                quoted = "; ".join(i.message or "" for i in errors[:_MAX_QUOTED])
+                more = (
+                    f" (and {len(errors) - _MAX_QUOTED} more)" if len(errors) > _MAX_QUOTED else ""
+                )
+                raise ToolError(f"{quoted}{more}")
         if kind == "source":
             out["version"] = _shown(plans[0].version)
         if temp:
@@ -541,11 +565,6 @@ class DownloadTools:
         if requested is not None:
             out["requested_architectures"] = [_shown(a) for a in requested]
             out["not_found_architectures"] = [_shown(a) for a in missing]
-        errors = [i for i in items if i.status == "error"]
-        if errors and len(errors) == len(items):
-            quoted = "; ".join(i.message or "" for i in errors[:_MAX_QUOTED])
-            more = f" (and {len(errors) - _MAX_QUOTED} more)" if len(errors) > _MAX_QUOTED else ""
-            raise ToolError(f"{quoted}{more}")
         out["complete"] = not errors and not missing
         out["files"] = files
         out["stale_temp_files_removed"] = removed
@@ -594,7 +613,7 @@ class DownloadTools:
             except (FetchCancelled, FetchTimeout, ToolError):
                 raise
             except (MinidebError, OSError, ValueError) as exc:
-                item.fail(error_text(exc))
+                item.fail(_file_error(item, exc))
                 continue
             self._publish_one(call, target, item, new)
 
@@ -633,7 +652,14 @@ class DownloadTools:
         try:
             dsc_data: bytes | None = None
             for item in todo:
-                new, copy = self._fetch(call, target, item, keep=item is dsc_item)
+                try:
+                    new, copy = self._fetch(call, target, item, keep=item is dsc_item)
+                except (FetchCancelled, FetchTimeout, ToolError):
+                    raise
+                except (MinidebError, OSError, ValueError) as exc:
+                    raise ToolError(
+                        f"{_file_error(item, exc)}; nothing of the source package was published"
+                    ) from None
                 staged.append((item, new))
                 if copy is not None:
                     dsc_data = copy

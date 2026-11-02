@@ -16,13 +16,14 @@ from typing import Any
 
 import pytest
 
-from minideblib.mcp import tools_repo
+from minideblib.control import Paragraph
+from minideblib.mcp import toolkit, tools_repo
 from minideblib.mcp.protocol import Tool, ToolCall, ToolError, validate
-from minideblib.mcp.repos import FIND_FILE_BUDGET
+from minideblib.mcp.repos import FIND_FILE_BUDGET, clean_value
 from minideblib.mcp.startup import RepositorySpec, ServerConfig
 from minideblib.mcp.tools import RepoManager, build_tools, clean_text
 from minideblib.mcp.tools_repo import contents_cost
-from minideblib.repo.client import RepoClient
+from minideblib.repo.client import RepoClient, SourceRecord
 from minideblib.repo.fetch import CancelToken
 from minideblib.sources import SourceEntry
 from tests.fixtures.repo import make_repo, multiarch_packages
@@ -136,6 +137,16 @@ def test_clean_text_truncates_with_marker() -> None:
     assert clean_text("abcde", 5) == "abcde"
     # the count refers to the cleaned text
     assert clean_text("\x00" * 10 + "abcdefg", 5) == "abcde…[truncated 2 chars]"
+
+
+def test_clean_value_keeps_keys_that_collide_after_cleaning() -> None:
+    out = clean_value({"a\x1b[31m": 1, "a": 2, "b": 3}, 100)
+    assert out == {"a": 1, "a…[1]": 2, "b": 3}
+
+
+def test_json_size_is_public_in_toolkit() -> None:
+    assert "json_size" in toolkit.__all__
+    assert toolkit.json_size({"a": "é"}) == len('{"a":"é"}'.encode())
 
 
 # -- repository resolution --------------------------------------------------------------
@@ -408,6 +419,46 @@ def _arch_sources(tmp_path: Path) -> str:
         src("s-amd", "amd64"),
     ]
     return make_repo(tmp_path, SUITE, comps=["main"], arches=["amd64"], sources=sources)
+
+
+def test_malformed_source_hashes_reach_problems(tmp_path: Path) -> None:
+    src = {
+        "Package": "s-bad",
+        "Binary": "s-bad",
+        "Version": "1",
+        "Architecture": "any",
+        "Directory": "pool/main/s/s-bad",
+        "Checksums-Sha256": f"\n {'4' * 64} 10 s-bad_1.dsc",
+        "Checksums-Sha1": "\n only-two 10",
+    }
+    base = make_repo(tmp_path, SUITE, comps=["main"], arches=["amd64"], sources=[src])
+    r = _call(
+        _tools()["search_packages"], repository=base, suite=SUITE, pattern="s-*", kind="source"
+    )
+    assert [p["name"] for p in r["packages"]] == ["s-bad"]
+    assert any("malformed Checksums-Sha1 ignored" in p for p in r["problems"]), r["problems"]
+
+
+@pytest.mark.parametrize(
+    ("listed", "want", "builds"),
+    [
+        ("any-arm", "armhf", True),
+        ("any-arm", "armel", True),
+        ("any-arm", "arm64", False),
+        ("any-amd64", "x32", True),
+        ("any-amd64", "amd64", True),
+        ("any-amd64", "kfreebsd-amd64", True),
+        ("any-amd64", "i386", False),
+        ("any-arm64", "arm64ilp32", True),
+        ("any-powerpc", "powerpcspe", True),
+        ("any-i386", "lpia", True),
+        ("any-i386", "hurd-i386", True),
+        ("any-arm", "all", False),
+    ],
+)
+def test_source_any_cpu_wildcards(listed: str, want: str, builds: bool) -> None:
+    rec = SourceRecord(Paragraph([("Package", "s"), ("Architecture", listed)]), SUITE, "main")
+    assert tools_repo._source_builds_for(rec, [want]) is builds
 
 
 def test_source_architecture_filter(tmp_path: Path) -> None:
@@ -929,6 +980,28 @@ def test_overview_proxy_redacted(monkeypatch: pytest.MonkeyPatch, value: str, sh
     assert "secret" not in text and "cret" not in text
     assert r["proxies"]["https"] == shown
     assert r["proxies"]["no"] == "localhost,.example.org"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "shown", "secret"),
+    [
+        ("https_proxy", "http://user:se/cret@127.0.0.1:9", "http://127.0.0.1:9", "cret"),
+        ("https_proxy", "http://user:pa?ss@h:1", "http://h:1", "pa?ss"),
+        ("https_proxy", "http://user:pa#ss@h:1", "http://h:1", "pa#ss"),
+        ("https_proxy", "http://user:pa ss@h:1", "http://h:1", "pa ss"),
+        ("https_proxy", "user:pa/ss@proxy:3128", "proxy:3128", "pa/ss"),
+        ("https_proxy", "http://u:p@ss@h:1", "http://h:1", "p@ss"),
+        ("ftp_proxy", "secret@proxy:3128", "proxy:3128", "secret"),
+        ("https_proxy", "//u:secret@h:1", "//h:1", "secret"),
+    ],
+)
+def test_overview_proxy_passwords_with_url_delimiters_redacted(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str, shown: str, secret: str
+) -> None:
+    monkeypatch.setenv(name, value)
+    r = _call(_tools()["repository_overview"])
+    assert secret not in json.dumps(r)
+    assert r["proxies"][name.removesuffix("_proxy")] == shown
 
 
 def test_overview_socks_proxy_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
