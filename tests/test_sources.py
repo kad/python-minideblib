@@ -257,3 +257,22 @@ def test_non_ascii_space_is_not_a_separator(caplog):
     # U+00A0 is not a field separator, so this is one unknown type word
     with caplog.at_level(logging.WARNING):
         assert parse_one_line("deb\u00a0https://host/repo stable main") is None
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "deb https://user:s3cret@deb.debian.org/",
+        "deb [arch=amd64 https://user:s3cret@deb.debian.org/debian stable main",
+        "deb [arch] https://user:s3cret@deb.debian.org/debian stable main",
+        "deb cdrom:[x https://user:s3cret@deb.debian.org/",
+        "deb https://user:s3cret@deb.debian.org/debian ./ main",
+    ],
+)
+def test_parse_warnings_redact_credentials(line, caplog):
+    with caplog.at_level(logging.WARNING):
+        parse_one_line(line)
+    assert caplog.records
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "s3cret" not in text
+    assert "deb.debian.org" in text

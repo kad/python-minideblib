@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from minideblib.control import parse_paragraphs
 from minideblib.errors import MinidebError
+from minideblib.repo.fetch import redact_url
 
 __all__ = [
     "DEFAULT_SOURCES_DIR",
@@ -117,12 +118,14 @@ def parse_one_line(line: str) -> SourceEntry | None:
     if rest.startswith("["):
         opt_text, close, rest = rest[1:].partition("]")
         if not close:
-            log.warning("skipping entry with unterminated option block: %r", line)
+            log.warning("skipping entry with unterminated option block: %r", redact_url(line))
             return None
         for item in _fields(opt_text):
             key, eq, val = item.partition("=")
             if not eq or not key:
-                log.warning("skipping entry with bad option %r: %r", item, line)
+                log.warning(
+                    "skipping entry with bad option %r: %r", redact_url(item), redact_url(line)
+                )
                 return None
             raw[key.lower()] = val
         rest = rest.lstrip(_BLANK)
@@ -130,7 +133,7 @@ def parse_one_line(line: str) -> SourceEntry | None:
         # cdrom URIs contain spaces inside their own brackets
         end = rest.find("]")
         if end < 0:
-            log.warning("skipping entry with unterminated cdrom URI: %r", line)
+            log.warning("skipping entry with unterminated cdrom URI: %r", redact_url(line))
             return None
         sep = _FIELD_SEP.search(rest, end)
         end = len(rest) if sep is None else sep.start()
@@ -138,11 +141,11 @@ def parse_one_line(line: str) -> SourceEntry | None:
     else:
         parts = [typ, *_fields(rest)]
     if len(parts) < 3 or parts[0] not in _TYPES:
-        log.warning("skipping malformed sources.list entry: %r", line)
+        log.warning("skipping malformed sources.list entry: %r", redact_url(line))
         return None
     typ, uri, suite, *components = parts
     if suite.endswith("/") and components:
-        log.warning("flat repository with components, ignoring components: %r", line)
+        log.warning("flat repository with components, ignoring components: %r", redact_url(line))
         components = []
     return SourceEntry(typ, uri, suite, tuple(components), **_split_options(raw))
 
