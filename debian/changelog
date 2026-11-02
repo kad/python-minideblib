@@ -1,4 +1,4 @@
-python-minideblib (0.7.0) UNRELEASED; urgency=medium
+python-minideblib (0.7.0) unstable; urgency=medium
 
   * Modernize the library for Python 3.11 and later; Python 2 is no longer
     supported.
