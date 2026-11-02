@@ -649,6 +649,31 @@ def test_sigterm_with_an_unread_stdout_flood(spawn: Spawner) -> None:
     assert time.monotonic() - start < SHUTDOWN_GRACE + 5
 
 
+def test_sigterm_after_20000_unread_pings(spawn: Spawner) -> None:
+    # 20000 single pings, stdout never read: whether the writer finished or is blocked
+    # on a full stdin pipe when SIGTERM arrives, the server exits 0 within the grace
+    # period plus a small margin (deterministic: no assertion depends on the timing)
+    child = spawn("mcp", read_stdout=False)
+    ping = b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n'
+
+    def flood() -> None:
+        try:
+            for _ in range(20_000):
+                child.client.send_raw(ping)
+        except (OSError, ValueError):
+            pass
+
+    writer = threading.Thread(target=flood, daemon=True)
+    writer.start()
+    writer.join(2.0)
+    start = time.monotonic()
+    child.proc.send_signal(signal.SIGTERM)
+    assert child.proc.wait(SHUTDOWN_GRACE + WAIT) == 0
+    assert time.monotonic() - start < SHUTDOWN_GRACE + 3
+    writer.join(WAIT)  # the pipe broke or the flood ended: the writer is gone
+    assert not writer.is_alive()
+
+
 _ROOT_HARNESS = """\
 import os
 import sys

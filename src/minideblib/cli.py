@@ -869,7 +869,8 @@ security model:
     characters escaped and URL credentials redacted
 
 The server speaks MCP (JSON-RPC 2.0, one message per line) on stdin/stdout and exits
-with status 0 at EOF, SIGTERM or SIGINT, 2 when it cannot start. At EOF on stdin, as at
+with status 0 at EOF, or at SIGTERM or SIGINT once it is running (while it is still
+starting a signal gets the default action), 2 when it cannot start. At EOF on stdin, as at
 SIGTERM or SIGINT, calls still running or queued are cancelled and get no response.
 The server waits for them up to 5 seconds, and exits anyway at most 7 seconds after a
 signal; a second signal exits at once. Repositories given with --url or --sources are

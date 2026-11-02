@@ -140,6 +140,10 @@ List DEP-11 icon tarballs (path, icon size, bytes).
 .BR source " (" src ) " SUITE PACKAGE [\-\-version V]"
 Show the .dsc of a source package (hash-checked download).
 .TP
+.B mcp [SERVER OPTIONS]
+Run a Model Context Protocol server for AI agents on standard input and output; see
+\fBMCP SERVER\fR.
+.TP
 .B dsc info FILE
 Print the key fields of a .dsc file.
 .TP
@@ -176,6 +180,82 @@ extract into a private directory.
 .BR "deb field" " (" f ) " FILE [FIELD...]"
 Print fields (like \fBdpkg\-deb \-f\fR).
 If a field is missing, the ones found are printed and the exit status is 1.
+.SH MCP SERVER
+.B minideb mcp
+runs a local Model Context Protocol (MCP) server for AI agents.
+It speaks JSON\-RPC 2.0 on standard input and output, one message per line, and is
+started by the agent's host program.
+It works on Linux and macOS only and refuses to start as root (real, effective or saved
+user id 0).
+Standard output carries protocol messages only; logs go to standard error.
+.PP
+The global options \fB\-\-url\fR (repeatable), \fB\-\-sources\fR, \fB\-\-no\-verify\fR,
+\fB\-\-timeout\fR, \fB\-\-retries\fR, \fB\-v\fR (\fB\-\-verbose\fR),
+\fB\-q\fR (\fB\-\-quiet\fR) and \fB\-h\fR (\fB\-\-help\fR) are accepted after \fBmcp\fR.
+Repositories given with \fB\-\-url\fR or \fB\-\-sources\fR are named repo1, repo2, ...;
+the system sources are \fBnot\fR read, so without them the agent names a repository
+URL in each call.
+\fB\-\-no\-verify\fR only affects the checks of indexes: downloaded files are always
+verified, and a warning is printed at start.
+.PP
+Tools:
+.BR repository_overview ,
+.BR search_packages ,
+.BR package_versions ,
+.BR package_info ,
+.BR source_info ,
+.BR find_file ,
+.BR appstream_components ,
+.BR download_package ,
+.BR inspect_deb
+and
+.BR inspect_dsc .
+Results are JSON; text taken from a repository is untrusted data.
+Without an architecture list the tools cover every architecture of the suite and group
+the results; \fBdownload_package\fR fails if several architectures are candidates.
+.SS Server options
+.TP
+.BI \-\-download\-dir " DIR"
+Base directory for downloads (default: the directory the server was started in, checked
+when a download is requested).
+An explicit \fIDIR\fR must exist and be writable; this is checked at start.
+Downloads are also allowed in a private per\-session directory (mode 0700) below the
+temporary directory, which is not removed at exit.
+Existing files are never overwritten and symlinks are never followed.
+.TP
+.B \-\-no\-download
+Read\-only server without the \fBdownload_package\fR tool.
+.TP
+.BI \-\-allow\-host " HOST"
+Only accept repositories on this host (repeatable; \fB*.example.org\fR matches
+subdomains); \fBfile://\fR mirrors stay allowed.
+Default: any host.
+.TP
+.B \-\-allow\-link\-local
+Allow link\-local addresses and cloud metadata host names, which are refused by default.
+.TP
+.BI \-\-max\-response\-bytes " N"
+Cap of one tool result message (default: 200000, at least 4096).
+Results carry their data twice for newer protocol versions, so about a third is usable.
+.TP
+.BI \-\-max\-download\-bytes " N"
+Cap of the total size of the files of one \fBdownload_package\fR call (default: 1 GiB).
+.TP
+.BI \-\-call\-timeout " SECONDS"
+Time limit of one tool call (default: 120, at most 604800).
+.TP
+.BI \-\-download\-timeout " SECONDS"
+Time limit of one \fBdownload_package\fR call (default: 900, at most 604800).
+.SS Exit status
+The server exits with status 0 at EOF on standard input, and on SIGTERM or SIGINT once
+it is running (a signal that arrives while it is still starting gets the default
+action), and with status 2 when it cannot start (root, a bad directory or option, an
+unsupported platform).
+Calls still running or queued at EOF or a signal are cancelled and get no response.
+The server waits for them up to 5 seconds and exits at most 7 seconds after a signal;
+a second signal exits at once.
+.PP
+Proxies are taken from \fBhttp_proxy\fR, \fBhttps_proxy\fR and \fBno_proxy\fR.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -205,6 +285,7 @@ minideb \-\-url http://archive.ubuntu.com/ubuntu list noble \-c main \-a amd64
 minideb \-\-url http://deb.debian.org/debian source stable hello
 minideb deb info package.deb
 minideb dsc verify hello_2.10\-3.dsc
+minideb mcp \-\-download\-dir ~/debs
 .fi
 .SH SEE ALSO
 .BR dpkg\-deb (1),

@@ -25,10 +25,12 @@
    output of loggers without handlers) and :mod:`warnings` (captured into
    logging for the session); a traceback (``-vv``) becomes part of its
    one-line record;
-6. serves until EOF on stdin, SIGTERM or SIGINT. A signal ends the session
-   like EOF: in-flight and queued calls are cancelled and get no response,
-   the server waits for them up to :data:`~minideblib.mcp.protocol.SHUTDOWN_GRACE`
-   seconds, and the exit status is 0. Signals are noticed by a watcher
+6. serves until EOF on stdin, SIGTERM or SIGINT. The signals are caught
+   only from this step on (before it, during startup, they keep their
+   default action). A signal ends the session like EOF: in-flight and
+   queued calls are cancelled and get no response, the server waits for
+   them up to :data:`~minideblib.mcp.protocol.SHUTDOWN_GRACE` seconds, and
+   the exit status is 0. Signals are noticed by a watcher
    thread (via :func:`signal.set_wakeup_fd`), so they work whichever thread
    the system delivers them to and while the main thread is blocked
    writing (a full stderr or stdout pipe): the first signal also starts a

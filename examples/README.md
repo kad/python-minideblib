@@ -3,16 +3,17 @@
 Small, runnable scripts showing the public API of `minideblib`. Each one is 30 to 60
 lines, fully annotated and has a `main(argv) -> int` entry point.
 
-All network examples (01, 02, 03, 09, 10, 11) take `URL SUITE [COMPONENT]` arguments
-(example 03 takes `URL SUITE [PATH]`) and default to Debian `http://deb.debian.org/debian`,
-suite `stable`, component `contrib`, architecture `amd64`: a small index that downloads
+All network examples (01, 02, 03, 09, 10, 11, 12) take `URL SUITE [COMPONENT]` arguments
+(example 03 takes `URL SUITE [PATH]`) and default to Debian `http://deb.debian.org/debian`
+(example 12: `https://deb.debian.org/debian`), suite `stable`, component `contrib`,
+architecture `amd64`: a small index that downloads
 quickly (use `main` for the full one). Ubuntu works as well, for example
 `http://archive.ubuntu.com/ubuntu noble multiverse`. Examples that need a `.deb`
 (05, 06) accept a path and otherwise build a tiny sample package with the helper in
 `examples/_sample.py`.
 
 The sample output below was captured from real runs against the live Debian archive
-on 2026-11-01 (trimmed; archive contents change over time). Examples 04 to 08 are offline.
+on 2026-11-01 (trimmed; archive contents change over time). Examples 04 to 08 are offline. Example 12 starts `minideb mcp` as a child process.
 
 ## 01 browse a repository
 
@@ -199,9 +200,29 @@ uv run python examples/11_source_package_dsc.py [URL SUITE [COMPONENT]] [--verif
 verified 2 files
 ```
 
+## 12 MCP client
+
+A stdlib-only client for the MCP server (`minideb mcp`, see "Using minideb with AI agents" in
+the main README). It starts the server with `--no-download` through `sys.executable`,
+sends `initialize`, the `notifications/initialized` notification and `tools/list`, then
+calls `repository_overview` and `search_packages` for the repository; `--pattern` is a
+substring or glob of package names. Messages are one
+JSON object per line; a tool result is JSON text in `content[0].text`. The output below is
+shortened (the overview also reports the proxy settings of your environment).
+
+```
+uv run python examples/12_mcp_client.py [URL SUITE [COMPONENT]] [--pattern TEXT]
+```
+
+```
+tools: repository_overview, search_packages, package_versions, package_info, source_info, ...
+repository_overview: {"repository":"https://deb.debian.org/debian","server":{"name":"minideb","version":"0.7.0"},...
+search_packages: {"repository":"https://deb.debian.org/debian","suite":"stable","kind":"binary","total":44,...
+```
+
 ## Running the tests
 
 ```
 uv run pytest tests/test_examples.py          # offline, against file:// fixtures
-MINIDEB_NETWORK=1 uv run pytest tests/test_examples.py   # also runs 01 and 02 live
+MINIDEB_NETWORK=1 uv run pytest tests/test_examples.py   # also runs 01, 02 and 12 live
 ```

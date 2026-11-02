@@ -4,6 +4,7 @@
 """Run every script in examples/ offline (file:// fixtures) and check its structure."""
 
 import importlib.util
+import os
 import re
 import sys
 from collections.abc import Iterator
@@ -15,6 +16,7 @@ import pytest
 from tests.conftest import live_target
 from tests.fixtures.debs import make_deb
 from tests.fixtures.repo import make_repo
+from tests.mcp_client import skip_as_root
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 EXAMPLES = sorted(p for p in EXAMPLES_DIR.glob("*.py") if not p.name.startswith("_"))
@@ -174,6 +176,24 @@ def test_11_source_package(url, capsys):
     assert "sample-pkg 1.0-1" in out and "verified" in out
 
 
+def test_12_mcp_client(url, monkeypatch, capsys):
+    skip_as_root()
+    for key in [k for k in os.environ if k.lower().endswith("_proxy")]:
+        monkeypatch.delenv(key)  # the child must not see proxy settings
+    out = run("12_mcp_client", [url, SUITE, COMP, "--pattern", "sample"], capsys)
+    assert "tools: repository_overview, search_packages" in out
+    assert "repository_overview:" in out and '"sample-pkg"' in out
+
+
+def test_12_mcp_client_bad_repository(tmp_path, monkeypatch, capsys):
+    skip_as_root()
+    for key in [k for k in os.environ if k.lower().endswith("_proxy")]:
+        monkeypatch.delenv(key)
+    dead = (tmp_path / "gone").as_uri()
+    assert load("12_mcp_client").main([dead, SUITE, COMP]) == 1
+    assert "search_packages:" in capsys.readouterr().out
+
+
 @pytest.mark.network
 def test_live_defaults_01_02(capsys):
     live_url, suite, comp, _ = live_target()
@@ -183,8 +203,16 @@ def test_live_defaults_01_02(capsys):
     assert capsys.readouterr().out
 
 
+@pytest.mark.network
+def test_live_12_mcp_client(capsys):
+    skip_as_root()
+    live_url, suite, comp, _ = live_target()
+    assert load("12_mcp_client").main([live_url, suite, comp]) == 0
+    assert "search_packages:" in capsys.readouterr().out
+
+
 def test_examples_exist():
-    assert len(EXAMPLES) >= 11
+    assert len(EXAMPLES) >= 12
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)

@@ -24,6 +24,8 @@ not verify the OpenPGP signature of a repository (see [Trust](#trust)).
 - Pure Python `.deb` reader and safe extractor, `ar`, control files, changelogs,
   `.dsc` files and Debian version comparison. The `minideb deb` commands are a subset of
   `dpkg-deb` (`-I`, `-e`, `-c`, `-x`, `-f`).
+- `minideb mcp`: a local MCP server that lets AI agents query repositories and download
+  verified packages (see [Using minideb with AI agents](#using-minideb-with-ai-agents)).
 - Typed (`py.typed`) and tested offline against generated `file://` repositories.
 
 ## Requirements
@@ -284,6 +286,152 @@ The snippet was run as written. Runnable, annotated scripts are in [`examples/`]
 | `09_appstream.py`                 | DEP-11 AppStream components                                      |
 | `10_custom_fetcher_and_errors.py` | `Fetcher` options, `FetchError`, non-fatal `problems`            |
 | `11_source_package_dsc.py`        | fetching and verifying a source package `.dsc`                   |
+| `12_mcp_client.py`                | a stdlib client talking to `minideb mcp`                         |
+
+## Using minideb with AI agents
+
+`minideb mcp` is a local [Model Context Protocol](https://modelcontextprotocol.io/) server
+for AI agents. The agent's host program starts it as a child process and talks to it over
+stdin and stdout (JSON-RPC 2.0, one message per line); there is no network listener. It
+adds no parsing of its own: every tool is a thin layer over the library, so an agent can
+point at a repository, ask which versions of the packages matching a name exist there,
+read their full metadata, download sources or binaries with verified hashes, and inspect
+local `.deb` and `.dsc` files. It needs only the standard library and runs on POSIX
+systems (Linux, macOS; macOS is not exercised in CI): it relies on directory file
+descriptors and `O_NOFOLLOW`, and refuses to start elsewhere.
+
+Start it with `minideb mcp`, `python3 -m minideblib mcp`, `uvx --from minideblib minideb mcp`
+or `python3 minideb.pyz mcp`. Most MCP hosts take a configuration in this generic shape
+(the file name and place depend on the host):
+
+```json
+{
+  "mcpServers": {
+    "minideb": {
+      "command": "minideb",
+      "args": ["mcp", "--download-dir", "/home/user/debs", "--allow-host", "deb.debian.org"],
+      "env": {
+        "https_proxy": "http://proxy.example.org:3128",
+        "no_proxy": "localhost,127.0.0.1,.example.org"
+      }
+    }
+  }
+}
+```
+
+Without an installed `minideb` use `"command": "uvx"` with `"args": ["--from", "minideblib",
+"minideb", "mcp", ...]`. Give the server repositories with `--url` (repeatable) or
+`--sources PATH`; they are named `repo1`, `repo2`, ... in the order given and listed by
+`repository_overview`. Unlike the other commands, `mcp` never reads `/etc/apt` on its own:
+with no repository configured, the agent names a repository URL (`https://...` or
+`file:///...`) in each call. A client written in Python is in
+[`examples/12_mcp_client.py`](examples/12_mcp_client.py).
+
+### Tools
+
+- `repository_overview`: server version, configured repositories, proxy settings
+  (credentials redacted), the download directories and whether they are writable; for a
+  repository, its suites, components, architectures and what each suite offers.
+- `search_packages`: packages of a suite whose name or short description contains a text,
+  or whose name matches a glob (`*`, `?`), with all versions, paged.
+- `package_versions`: all versions of one package across suites, newest first by Debian
+  ordering.
+- `package_info`: full metadata of a binary package, with per-architecture variants.
+- `source_info`: the same for a source package, optionally with the hash-checked `.dsc`.
+- `find_file`: which packages ship a path, from the `Contents` indices of one component.
+- `appstream_components`: DEP-11 AppStream components (needs PyYAML on the server).
+- `download_package`: download a `.deb`, or a `.dsc` with every file it lists, into the
+  download directory (absent with `--no-download`).
+- `inspect_deb`: control fields, file list and one text member of a local `.deb`.
+- `inspect_dsc`: parsed fields and files of a local `.dsc`, optionally verified against the
+  files next to it.
+
+Results are JSON (also as `structuredContent` for protocol `2025-06-18` and later). Tool
+errors come back as results with `isError` so the model can react. The server speaks the
+protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`, and rejects
+JSON-RPC batches.
+
+### Security model
+
+- Not root: the server refuses to run as root. If the real, effective or saved user id is 0 it exits
+  with status 2 (rootless containers that map to uid 0 are refused as well). There is no
+  override.
+- It writes in two places only: the base download directory (`--download-dir`, default the
+  directory it was started in) and a private session directory under the temporary
+  directory (mode 0700, created when first used, **not** removed at exit; its path is in
+  the results). It never overwrites a file and never follows a symlink while writing. An
+  explicit `--download-dir` must exist and be writable at start; the default directory is
+  checked when a download is requested, because many hosts start servers in an unwritable
+  directory. Leftover `.minideb-` temporary files of crashed runs older than an hour are
+  removed from those directories.
+- Every downloaded file is checked against a SHA256-or-stronger hash taken from the
+  repository metadata, and a failed check leaves no file behind (subdirectories created
+  for a download that fails completely are removed again when empty). `--no-verify` only skips
+  the index checks, never the check of downloads (the server prints a warning at start).
+  The `Release` signature is not verified, so the metadata is unauthenticated: use
+  `https://` mirrors.
+- Everything a repository says (descriptions, changelogs, file names) is untrusted data.
+  The server never acts on it, strips control characters, truncates long fields, and tells
+  the model not to follow instructions found there. File names come only from validated
+  base names, so a hostile `Filename` cannot leave the download directory.
+- `file://` mirrors are only read, never written. Paths taken from the metadata stay below
+  the given base (no `..`), but symlinks inside a mirror are followed, wherever they point.
+  `inspect_deb` and `inspect_dsc` read only local regular files that the user can
+  open and return only the parsed structure and, for `read_file`, the text of one member;
+  they cannot list directories (whether a file exists can still be probed).
+- Network use follows the library: `http`, `https` and `file` only, no credentials in URLs,
+  no redirect from https to http. `--allow-host HOST` (repeatable, `*.example.org`
+  allowed) restricts repositories to those hosts and `file://`; link-local addresses and
+  cloud metadata names are refused unless `--allow-link-local` is given. Proxies come from
+  `http_proxy`, `https_proxy` and `no_proxy`; an `https_proxy` of the form `http://...`
+  sends proxy credentials unencrypted, and `no_proxy` has no CIDR support.
+- `--no-download` makes a read-only server without `download_package`.
+- stdout carries only protocol messages; logs go to stderr with control characters
+  escaped and URL credentials removed.
+
+### Limits and defaults
+
+| setting | default |
+|---|---|
+| tool result (`--max-response-bytes`) | 200000 bytes, at least 4096; results hold their data twice for newer protocol versions, so about a third is usable |
+| download total per call (`--max-download-bytes`) | 1 GiB |
+| time per call (`--call-timeout`) / per download (`--download-timeout`) | 120 s / 900 s, at most 7 days |
+| search and file lists | 50 entries per page, at most 500 (`limit`, `offset`) |
+| local `.deb` / `.dsc` | 512 MiB / 8 MiB; at most 256 MiB unpacked and 200000 entries; `read_file` 64 KiB by default, 1 MiB at most |
+| input line | 4 MiB; an over-long line gets an error and the session goes on |
+| repository index | 256 MiB downloaded (refused before the download when `Release` lists it larger), 512 MiB decompressed |
+| `find_file` | Contents indices within an estimated 1 GiB parsed per call (and 80 % of the call time); later architectures are left out with `partial` |
+| cache | 8 repositories, parsed indices within 512 MiB |
+
+`--timeout` and `--retries` set the network timeout and retries as for the other commands.
+At EOF on stdin, SIGTERM or SIGINT the server cancels running calls (they get no response),
+waits up to 5 seconds and exits with status 0; a second signal exits at once. This holds
+once the server is running: a signal that arrives while it is still starting gets the
+default action. The exit status is 2 when it cannot start.
+
+### Architectures
+
+Architecture is optional everywhere. `search_packages`, `package_versions`, `package_info`
+and `source_info` take an `architectures` list (default: all the suite offers) and group
+results: one entry per name, version and component with an `architectures` list, so an
+`Architecture: all` package listed in every per-architecture index appears once. Fields
+that differ per architecture (size, file name, hashes, dependencies) come in `variants`.
+`find_file` needs a `component` and without `architectures` searches one architecture at
+a time within a byte and time budget, marking the result `partial` when it stops early.
+`download_package` without `architectures` downloads the only candidate and fails with
+the list of the available architectures when there are several.
+
+### Troubleshooting
+
+- Nothing but protocol messages may reach stdout. If the host reports a parse error, check
+  that a wrapper script or a shell profile does not write to stdout.
+- To see what the server does, add `-vv` to the arguments (`"args": ["mcp", "-vv"]`); the
+  log goes to stderr, which most hosts show in their MCP log.
+- A host may start the server in an unwritable current directory such as `/`: pass
+  `--download-dir`. Behind a proxy, set the proxy variables in `env`; a missing variable is
+  the usual cause of timeouts, and `repository_overview` shows the effective settings.
+- Exit status 2 at start: running as root, an unusable `--download-dir`, a bad option or an
+  unsupported platform; the reason is on stderr.
 
 ## Trust
 
