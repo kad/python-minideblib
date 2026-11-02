@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from minideblib import sources as sources_mod
 from minideblib.sources import (
     SourceEntry,
     SourcesError,
@@ -229,6 +230,25 @@ def test_malformed_sources_file_named_and_skipped_in_dir(tmp_path: Path, caplog)
     assert any("a.sources" in r.getMessage() for r in caplog.records)
     with pytest.raises(ValueError, match=r"a\.sources: line 2"):
         load(tmp_path / "a.sources")
+
+
+def test_malformed_sources_file_errors_redact_credentials(tmp_path: Path, caplog, monkeypatch):
+    # a parse error quoting a URL with credentials (the control parser only quotes
+    # lines without a colon, so stand in for any future message that does)
+    def fail(text):
+        raise ValueError("line 2: bad URIs https://user:s3cret@deb.debian.org/debian")
+
+    monkeypatch.setattr(sources_mod, "parse_deb822", fail)
+    (tmp_path / "a.sources").write_text("Types: deb\n")
+    with pytest.raises(SourcesError) as ei:
+        load(tmp_path / "a.sources")
+    assert "s3cret" not in str(ei.value)
+    assert "deb.debian.org" in str(ei.value)
+    with caplog.at_level(logging.WARNING):
+        assert load(tmp_path) == []
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "a.sources" in text and "deb.debian.org" in text
+    assert "s3cret" not in text
 
 
 @pytest.mark.parametrize(

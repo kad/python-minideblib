@@ -212,6 +212,31 @@ def test_bad_allowed_host(host: str) -> None:
         build_config(_args(allow_host=[host]))
 
 
+@pytest.mark.parametrize("host", ["a b", "*", "-x.org", "x-.org", "a\tb"])
+def test_invalid_allowed_host_names(host: str) -> None:
+    with pytest.raises(StartupError, match=r"^--allow-host: .*not a valid host name"):
+        build_config(_args(allow_host=[host]))
+
+
+def test_url_outside_the_allowlist_is_refused(tmp_path: Path) -> None:
+    ok = build_config(
+        _args(url=["http://a.example/debian", "file:///srv/mirror"], allow_host=["*.example"])
+    )
+    assert len(ok.repositories) == 2  # file: URLs are not subject to the allowlist
+    with pytest.raises(StartupError) as info:
+        build_config(_args(url=["https://b.example.org/debian"], allow_host=["a.example"]))
+    message = str(info.value)
+    assert message.startswith("--url: host 'b.example.org' is not allowed by --allow-host")
+    assert "\n" not in message
+    listing = tmp_path / "x.list"
+    listing.write_text("deb http://a.example/debian stable main\ndeb http://evil.test/ x main\n")
+    with pytest.raises(
+        StartupError, match=r"^--sources .*x\.list: host 'evil.test' is not allowed"
+    ):
+        build_config(_args(sources=str(listing), allow_host=["a.example"]))
+    assert build_config(_args(sources=str(listing))).repositories  # no allowlist: no check
+
+
 # -- repositories -------------------------------------------------------------------
 
 

@@ -23,7 +23,7 @@ from typing import Any
 from minideblib import sources
 from minideblib.errors import MinidebError
 from minideblib.mcp.safeio import WriteRoot, WriteRootError
-from minideblib.repo.fetch import Fetcher, redact_url
+from minideblib.repo.fetch import Fetcher, HostNotAllowed, redact_url
 from minideblib.sources import SourceEntry, SourcesError
 
 __all__ = [
@@ -194,11 +194,26 @@ def check_url(url: str, option: str) -> str:
     return url
 
 
-def _repositories(urls: list[str], sources_path: str | None) -> tuple[RepositorySpec, ...]:
+def _check_allowed(url: str, option: str, policy: Fetcher | None) -> None:
+    """StartupError if the ``--allow-host`` *policy* refuses the host of *url*."""
+    if policy is None:
+        return
+    try:
+        policy.check_host(url)
+    except HostNotAllowed:
+        host = urllib.parse.urlsplit(url).hostname or ""
+        raise StartupError(f"{option}: host {host!r} is not allowed by --allow-host") from None
+
+
+def _repositories(
+    urls: list[str], sources_path: str | None, policy: Fetcher | None = None
+) -> tuple[RepositorySpec, ...]:
     # keyed by the URL without trailing slashes; the first spelling is kept
     ordered: dict[str, tuple[str, list[SourceEntry]]] = {}
     for url in urls:
-        ordered.setdefault(check_url(url, "--url").rstrip("/"), (url, []))
+        check_url(url, "--url")
+        _check_allowed(url, "--url", policy)
+        ordered.setdefault(url.rstrip("/"), (url, []))
     if sources_path is not None:
         try:
             entries = sources.load(Path(sources_path))
@@ -207,6 +222,7 @@ def _repositories(urls: list[str], sources_path: str | None) -> tuple[Repository
         for entry in entries:
             if entry.enabled:
                 check_url(entry.uri, f"--sources {sources_path}")
+                _check_allowed(entry.uri, f"--sources {sources_path}", policy)
                 ordered.setdefault(entry.uri.rstrip("/"), (entry.uri, []))[1].append(entry)
     return tuple(
         RepositorySpec(f"repo{i}", url, tuple(group))
@@ -234,8 +250,9 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     ``repo1``, ``repo2``, ... : ``--url`` entries first (in order, duplicates
     once), then one per further distinct URI of the ``--sources`` file or
     directory (entries for a URI already given with ``--url`` are merged into
-    that repository); every URI passes the same checks as ``--url``; the
-    system sources are never read implicitly. An explicit ``--download-dir``
+    that repository); every URI passes the same checks as ``--url`` and,
+    with ``--allow-host``, must name an allowed host (``file:`` URLs are not
+    affected); the system sources are never read implicitly. An explicit ``--download-dir``
     (``~`` expanded) must exist, be a directory (not a symlink) and be
     writable by the effective user; its device and inode are recorded
     (:attr:`ServerConfig.download_dir_id`). ``--max-response-bytes`` must be
@@ -245,10 +262,12 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     defaults = ServerConfig()
     hosts_opt = getattr(args, "allow_host", None)
     allowed_hosts: tuple[str, ...] | None = None
+    policy: Fetcher | None = None
     if hosts_opt is not None:
         allowed_hosts = tuple(hosts_opt)
         try:
-            Fetcher(allowed_hosts=allowed_hosts)
+            # only the allowlist: link-local hosts are refused (or not) per request
+            policy = Fetcher(allowed_hosts=allowed_hosts, block_link_local=False)
         except (TypeError, ValueError) as exc:
             raise StartupError(f"--allow-host: {exc}") from None
     download_dir = getattr(args, "download_dir", None)
@@ -259,7 +278,9 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
             raise StartupError("--download-dir: empty path")
         checked = _download_dir(download_dir)
     return ServerConfig(
-        repositories=_repositories(list(getattr(args, "url", None) or ()), _sources_arg(args)),
+        repositories=_repositories(
+            list(getattr(args, "url", None) or ()), _sources_arg(args), policy
+        ),
         download_dir=None if checked is None else checked[0],
         download_dir_id=None if checked is None else checked[1],
         allow_download=not getattr(args, "no_download", False),

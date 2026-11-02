@@ -32,6 +32,8 @@ from minideblib.repo.fetch import Fetcher, HostNotAllowed, redact_url
 
 __all__ = [
     "FIND_FILE_BUDGET",
+    "INDEX_DOWNLOAD_LIMIT",
+    "INDEX_SIZE_LIMIT",
     "MAX_CLIENTS",
     "Repo",
     "RepoManager",
@@ -47,7 +49,11 @@ _T = TypeVar("_T")
 #: repository clients kept by :class:`RepoManager` (least recently used dropped)
 MAX_CLIENTS = 8
 #: estimated parsed-index bytes one ``find_file`` call may read (see the tool)
-FIND_FILE_BUDGET = 2 * 1024**3
+FIND_FILE_BUDGET = 1024**3
+#: largest file (an index, Release, a .dsc) the shared Fetcher downloads in memory
+INDEX_DOWNLOAD_LIMIT = 256 * 1024**2
+#: largest decompressed index a client accepts
+INDEX_SIZE_LIMIT = 512 * 1024**2
 
 #: longest repository name or URL quoted back in an error message
 _QUOTE = 200
@@ -204,7 +210,10 @@ class RepoManager:
     after each call, the caches of the least recently used other clients
     are cleared until the total fits (see :meth:`trim`).
     *find_file_budget_bytes* is the estimated parsed-index budget of one
-    ``find_file`` call.
+    ``find_file`` call. *max_index_download_bytes* is the shared Fetcher's
+    ``max_bytes`` (one downloaded index, Release or ``.dsc``; package
+    downloads stream to disk under their own limit) and *max_index_bytes*
+    bounds one decompressed index of every client.
 
     Clients are unscoped (configured sources entries keep their own
     components and architectures); the tools pass per-call
@@ -220,12 +229,16 @@ class RepoManager:
         max_clients: int = MAX_CLIENTS,
         cache_budget_bytes: int = DEFAULT_CACHE_BUDGET,
         find_file_budget_bytes: int = FIND_FILE_BUDGET,
+        max_index_download_bytes: int = INDEX_DOWNLOAD_LIMIT,
+        max_index_bytes: int = INDEX_SIZE_LIMIT,
     ) -> None:
         self.config = config
         self.max_clients = max_clients
         self.cache_budget_bytes = cache_budget_bytes
         self.find_file_budget_bytes = find_file_budget_bytes
+        self.max_index_bytes = max_index_bytes
         self.fetcher = Fetcher(
+            max_bytes=max_index_download_bytes,
             timeout=config.timeout,
             retries=config.retries,
             allowed_hosts=config.allowed_hosts,
@@ -286,6 +299,7 @@ class RepoManager:
                 self.fetcher,
                 self.config.verify,
                 cache_budget_bytes=cache_budget_bytes,
+                max_index_bytes=self.max_index_bytes,
             )
         return RepoClient.from_url(
             url,
@@ -293,6 +307,7 @@ class RepoManager:
             fetcher=self.fetcher,
             verify=self.config.verify,
             cache_budget_bytes=cache_budget_bytes,
+            max_index_bytes=self.max_index_bytes,
         )
 
     def resolve(self, repository: str | None) -> Repo:

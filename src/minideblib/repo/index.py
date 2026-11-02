@@ -92,9 +92,18 @@ def fetch_index(
     then the plain path; a 404 moves on to the next candidate, any other error
     propagates. *base_url* is unused (``rel.dists_url`` is authoritative) and
     kept for API symmetry. ``HashMismatch`` propagates; ``FetchError`` too if
-    every candidate is missing.
+    every candidate is missing, and (with *verify*) before any request when
+    Release lists *entry* as larger than ``fetcher.max_bytes``. *max_size*
+    bounds the decompressed data (``DecompressionLimitError``).
     """
     urls = index_urls(rel, entry)
+    if verify and entry.size > fetcher.max_bytes:
+        # the verified size would fail anyway: refuse before downloading anything
+        raise FetchError(
+            f"{entry.path} is listed at {entry.size} bytes, over the limit of "
+            f"{fetcher.max_bytes} bytes; not downloaded",
+            urls[0] if urls else entry.path,
+        )
     log.debug("%s: %d candidate URL(s), by-hash=%s", entry.path, len(urls), rel.acquire_by_hash)
     for i, url in enumerate(urls):
         log.debug("trying candidate %d/%d: %s", i + 1, len(urls), redact_url(url))

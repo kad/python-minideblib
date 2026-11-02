@@ -122,6 +122,32 @@ def test_fetch_index_max_size(tmp_path):
         index.fetch_index(Fetcher(), base, rel, rel.files[PKG + ".gz"], max_size=10)
 
 
+class _Counting(Fetcher):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.urls = []
+
+    def get(self, url, **kw):
+        self.urls.append(url)
+        return super().get(url, **kw)
+
+
+def test_fetch_index_listed_size_over_the_fetcher_limit_refused_before_download(tmp_path):
+    base, rel = _setup(tmp_path)
+    entry = rel.files[PKG]
+    assert entry.size > 10
+    fetcher = _Counting(max_bytes=10)
+    with pytest.raises(
+        FetchError, match=rf"{PKG} is listed at {entry.size} bytes, over the limit of 10"
+    ):
+        index.fetch_index(fetcher, base, rel, entry)
+    assert fetcher.urls == []
+    # without verification the Release sizes are not trusted: the fetcher limit applies
+    with pytest.raises(FetchError, match="exceeds 10 bytes"):
+        index.fetch_index(fetcher, base, rel, entry, verify=False)
+    assert len(fetcher.urls) == 1
+
+
 def test_fetch_index_by_hash(tmp_path):
     base, rel = _setup(tmp_path, by_hash=True)
     assert index.fetch_index(Fetcher(), base, rel, rel.files[PKG + ".gz"])

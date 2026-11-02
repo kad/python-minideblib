@@ -244,8 +244,17 @@ def _is_link_local(host: str) -> bool:
     return addr is not None and _is_blocked_addr(addr)
 
 
+#: one label of a host name in its IDNA form (underscores occur in real names)
+_HOST_LABEL = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?")
+
+
 def _allowed_entry(entry: str) -> str:
-    """Normalized *allowed_hosts* entry; ValueError for a URL, path or port."""
+    """Normalized *allowed_hosts* entry.
+
+    ValueError for a URL, path or port, and for anything that is neither an
+    IP address nor a host name made of letters, digits, ``-`` and ``_``
+    (optionally after one ``*.``).
+    """
     if not isinstance(entry, str):
         raise TypeError(f"allowed_hosts entries must be str, not {type(entry).__name__}")
     if "/" in entry:
@@ -267,6 +276,11 @@ def _allowed_entry(entry: str) -> str:
         raise ValueError(f"allowed_hosts entry {entry!r}: invalid host name ({e})") from None
     if not host:
         raise ValueError(f"allowed_hosts entry {entry!r}: empty host name")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if not all(_HOST_LABEL.fullmatch(label) for label in host.split(".")):
+            raise ValueError(f"allowed_hosts entry {entry!r}: not a valid host name") from None
     return "*." + host if wildcard else host
 
 
@@ -753,6 +767,11 @@ class Fetcher:
             if isinstance(reason, _ResolvedLinkLocal):
                 # a policy decision, not a network failure: not retried
                 raise HostNotAllowed(f"{reason}: {redact_url(url)}", url) from e
+            detail = redact_url(str(e))
+            bad_proxy = isinstance(e, ValueError) and "proxy" in detail.lower()
+            if bad_proxy:
+                # urllib quotes a malformed proxy setting verbatim, password and all
+                detail = "invalid proxy setting (http_proxy/https_proxy)"
             log.debug(
                 "%s %s failed after %.3fs, attempt %d/%d: %s",
                 method,
@@ -760,13 +779,16 @@ class Fetcher:
                 time.monotonic() - started,
                 attempt,
                 max(0, self.retries) + 1,
-                redact_url(str(e)),
+                detail,
             )
-            raise FetchError(
-                f"cannot fetch {redact_url(url)}: {redact_url(str(e))}",
+            err = FetchError(
+                f"cannot fetch {redact_url(url)}: {detail}",
                 url,
                 transient=_is_transient(e, url),
-            ) from e
+            )
+            if bad_proxy:
+                raise err from None  # a traceback must not show the setting either
+            raise err from e
 
     def _log_request(
         self,

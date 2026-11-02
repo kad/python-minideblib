@@ -133,6 +133,17 @@ def test_malformed_index_is_a_problem_not_a_failure(tmp_path):
     assert len(c.problems) == 1
 
 
+def test_max_index_bytes_bounds_decompressed_indices(tmp_path):
+    from minideblib.compress import DEFAULT_MAX_SIZE, DecompressionLimitError
+
+    base = make_repo(tmp_path)
+    assert RepoClient.from_url(base, suites=[SUITE]).max_index_bytes == DEFAULT_MAX_SIZE
+    c = RepoClient.from_url(base, suites=[SUITE], max_index_bytes=10)
+    assert c.max_index_bytes == 10
+    with pytest.raises(DecompressionLimitError):
+        c.packages(SUITE, arch="amd64")
+
+
 def test_records_are_frozen(tmp_path):
     base = make_repo(tmp_path)
     r = RepoClient.from_url(base, suites=[SUITE]).packages(SUITE)[0]
