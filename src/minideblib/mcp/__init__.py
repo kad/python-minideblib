@@ -5,7 +5,9 @@
 
 :mod:`minideblib.mcp.protocol` holds the stdio transport, JSON-RPC handling
 and tool dispatch (:class:`McpServer`, :class:`Tool`, :class:`ToolCall`,
-:class:`ToolError`, :func:`validate`).
+:class:`ToolError`, :func:`validate`); :mod:`minideblib.mcp.safeio` the
+confined write helpers and :mod:`minideblib.mcp.startup` the startup checks
+and :class:`~minideblib.mcp.startup.ServerConfig`.
 """
 
 from __future__ import annotations
