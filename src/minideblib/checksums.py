@@ -85,8 +85,9 @@ def is_weak(name: str) -> bool:
 
 # --- parsing --------------------------------------------------------------------
 
-#: Line breaks of control data: CRLF, LF or CR (nothing else ends a line).
-_LINE_BREAK = re.compile(r"\r\n?|\n")
+#: Line breaks of control data, as apt reads them: LF, with one optional CR
+#: before it. A lone CR (or anything else) does not end a line.
+_LINE_BREAK = re.compile(r"\r?\n")
 #: Size column: optional minus sign, then 1 to 20 ASCII digits. The bound keeps
 #: absurd values (and CPython's int-conversion limit) out of reach.
 _SIZE = re.compile(r"-?[0-9]{1,20}")

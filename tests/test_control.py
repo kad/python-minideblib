@@ -284,7 +284,7 @@ def test_control_error_bases():
         (": v\n", 1),  # empty name
         ("A: 1\n\x0c: v\n", 2),  # name made only of whitespace
         ("A: 1\r\n\r\nbad\r\n", 3),  # CRLF counted as one terminator
-        ("A: 1\r\rbad", 3),  # lone CR ends a line
+        ("A: 1\r\rbad\nbad", 2),  # a lone CR does not end a line
         ("# c\n\n\nA: 1\n#x\nbad", 6),  # comments and blanks are counted
     ],
 )
@@ -539,7 +539,10 @@ def test_strip_clearsign_tolerates_trailing_whitespace_on_markers():
 
 
 def test_strip_clearsign_lone_cr_and_unsigned_identity():
-    assert strip_clearsign(f"{BEGIN}\r\rA: 1\r{SIG}\r") == "A: 1\n"
+    # a lone CR does not end a line, so this is not armor: returned unchanged
+    lone = f"{BEGIN}\r\rA: 1\r{SIG}\r"
+    assert strip_clearsign(lone) == lone
+    assert strip_clearsign(f"{BEGIN}\r\n\r\nA: 1\r\n{SIG}\r\n") == "A: 1\n"
     plain = "A: 1\r\nB: 2\r"
     assert strip_clearsign(plain) == plain
 
@@ -679,9 +682,9 @@ def test_get_folded_present_empty_returns_empty_not_default():
     assert p.get_folded("Z", "dflt") == "dflt"
 
 
-def test_get_folded_splits_only_on_cr_lf():
-    p = Paragraph([("A", "a  b\r\n c\rd\x0ce\u2028f")])
-    assert p.get_folded("A") == "a  b c d\x0ce\u2028f"
+def test_get_folded_splits_only_on_lf():
+    p = Paragraph([("A", "a  b\r\n c\rd\x0ce\u2028f\n g")])
+    assert p.get_folded("A") == "a  b c\rd\x0ce\u2028f g"
 
 
 # 16. parse_file errors and warnings
@@ -726,12 +729,40 @@ def test_line_splitting_consistent_for_all_inputs(text):
         assert [list(p.items()) for p in parse_paragraphs(source)] == expected
 
 
-def test_lone_cr_splits_lines():
-    paras = list(parse_paragraphs("A: 1\r\r\nB: 2\n"))
-    assert [p.fields_in_order() for p in paras] == [["A"], ["B"]]
+def test_lone_cr_does_not_split_lines():
+    # like apt: only LF ends a line, one CR before it is dropped
+    (p,) = parse_paragraphs("A: 1\r\r\nB: 2\n")
+    assert p.fields_in_order() == ["A", "B"]
     (p,) = parse_paragraphs("A: 1\r c\rB: 2")
-    assert p["A"] == "1\n c"
-    assert p["B"] == "2"
+    assert p.fields_in_order() == ["A"]
+    assert p["A"] == "1\r c\rB: 2"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        lambda t: t,
+        lambda t: t.encode(),
+        lambda t: io.StringIO(t),
+        lambda t: io.BytesIO(t.encode()),
+        lambda t: io.BytesIO(t.encode()).readlines(),
+    ],
+)
+def test_lone_cr_cannot_inject_fields_or_stanzas(source):
+    (p,) = parse_paragraphs(source("Package: a\nDescription: hi\rthere\n"))
+    assert p["Description"] == "hi\rthere"
+    (p,) = parse_paragraphs(source("Package: a\nDescription: hi\rDepends: evil\n"))
+    assert p.fields_in_order() == ["Package", "Description"]
+    assert "Depends" not in p
+    text = "Package: a\nDescription: hi\r\rPackage: injected\rVersion: 9\n\nPackage: b\n"
+    paras = list(parse_paragraphs(source(text)))
+    assert [q["Package"] for q in paras] == ["a", "b"]
+    assert "Version" not in paras[0]
+
+
+def test_crlf_still_parses():
+    paras = list(parse_paragraphs("A: 1\r\n c\r\n\r\nB: 2\r\n"))
+    assert [list(p.items()) for p in paras] == [[("A", "1\n c")], [("B", "2")]]
 
 
 def test_iterable_of_lines_each_item_is_a_line():

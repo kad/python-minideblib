@@ -98,6 +98,13 @@ def test_malformed_skipped(line, caplog):
     assert caplog.records
 
 
+@pytest.mark.parametrize("sep", ["\u2028", "\x0c", "\x85", "\x1e"])
+def test_parse_sources_list_splits_at_lf_only(sep):
+    entries = parse_sources_list(f"deb http://x/ a main{sep}deb http://evil/ b main\r\n")
+    assert all(e.uri != "http://evil/" for e in entries)
+    assert len(entries) <= 1
+
+
 def test_parse_sources_list():
     text = "# c\ndeb http://x/ a main\n\nbad\ndeb-src http://x/ a main\n"
     entries = parse_sources_list(text)

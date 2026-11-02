@@ -100,14 +100,20 @@ def test_all_or_nothing():
         parse_multiline_hashes(" aa 1 f1\n bb 2 f2\n cc 3\n dd 4 f4\n")
 
 
-@pytest.mark.parametrize("eol", ["\r", "\n", "\r\n"])
+@pytest.mark.parametrize("eol", ["\n", "\r\n"])
 def test_line_ends(eol):
     value = eol.join(["", " aa 1 f1", " bb 2 f2", ""])
     assert parse_multiline_hashes(value) == [("aa", 1, "f1"), ("bb", 2, "f2")]
 
 
+def test_lone_cr_does_not_end_a_line():
+    # like apt, only LF ends a line: the two rows stay on one line of six columns
+    with pytest.raises(ChecksumError):
+        parse_multiline_hashes("\n aa 1 f1\r bb 2 f2\n")
+
+
 def test_mixed_line_ends_and_tabs():
-    value = "\taa\t1\tf1\r bb \t 2\t\t f2\r\ncc 3 f3\n"
+    value = "\taa\t1\tf1\n bb \t 2\t\t f2\r\ncc 3 f3\n"
     assert parse_multiline_hashes(value) == [("aa", 1, "f1"), ("bb", 2, "f2"), ("cc", 3, "f3")]
 
 

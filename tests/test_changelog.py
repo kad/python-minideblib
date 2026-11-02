@@ -25,6 +25,15 @@ foo (1.0-1) unstable; urgency=high
 """
 
 
+@pytest.mark.parametrize("sep", ["\u2028", "\x0c", "\x85", "\r"])
+def test_lines_end_at_lf_only(sep):
+    smuggled = f"  * Initial release.{sep}bar (9.9) x; urgency=low\n"
+    text = SAMPLE.replace("  * Initial release.\n", smuggled)
+    entries = changelog.parse(text)
+    assert [str(e.version) for e in entries] == ["1:2.0-1", "1.0-1"]
+    assert "bar (9.9)" in entries[1].changes
+
+
 def test_parse_entries():
     entries = changelog.parse(SAMPLE, keywords=["LP"])
     assert [e.package for e in entries] == ["foo", "foo"]

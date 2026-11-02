@@ -74,7 +74,10 @@ def parse(text: str, keywords: Iterable[str] = ()) -> list[ChangelogEntry]:
     on malformed input.
     """
     kws = list(keywords)
-    lines = text.splitlines()
+    # lines end at LF only, like dpkg-parsechangelog; one CR before it is dropped
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
+    if lines and lines[-1] == "":
+        lines.pop()
     entries: list[ChangelogEntry] = []
     i = 0
     n = len(lines)

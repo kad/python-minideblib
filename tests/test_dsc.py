@@ -119,6 +119,16 @@ def test_uploaders_comma_inside_angle_brackets():
     assert d.uploaders == ["A <a,b@example.com>", "B <b@example.com>"]
 
 
+@pytest.mark.parametrize("sep", ["\u2028", "\x0c", "\x85", "\r"])
+def test_package_list_splits_at_lf_only(sep):
+    text = make_text().replace(
+        " sample-pkg deb utils optional arch=any\n",
+        f" sample-pkg deb utils optional arch=any{sep}evil deb x y\n",
+    )
+    names = [e.name for e in Dsc.parse(text).package_list]
+    assert names == ["sample-pkg", "sample-pkg-doc"]
+
+
 def test_package_list():
     d = Dsc.parse(make_text())
     assert d.package_list == [

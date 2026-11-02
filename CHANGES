@@ -90,6 +90,13 @@ Unreleased
 * minideb -vv prints the traceback of an error after its one-line message,
   and the warnings about malformed one-line sources.list entries have URL
   credentials removed.
+* Control data is split at LF only, like apt: one CR before an LF is
+  dropped, and a lone CR is no longer a line break (it stays in the value),
+  so a value cannot smuggle extra fields or paragraphs past apt's reading.
+  The same rule applies to checksum blocks, .dsc Package-List, deb md5sums,
+  one-line sources.list files and changelogs (form feeds, U+2028 and other
+  separators no longer end a line there). RepoClient records a malformed
+  index as a problem and goes on without it instead of raising ControlError.
 
 minideblib 0.7.0 (2026-11-01)
 =============================

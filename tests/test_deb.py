@@ -45,6 +45,14 @@ def test_roundtrip(tmp_path, data_comp, control_comp):
     assert pkg.read("./usr/bin/x") == FILES["usr/bin/x"]
 
 
+@pytest.mark.parametrize("sep", ["\x0c", "\u2028", "\x1c"])
+def test_md5sums_split_at_lf_only(tmp_path, sep):
+    name = f"usr/share/a{sep}b"
+    pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, {name: b"x"})))
+    assert name in pkg.md5sums
+    assert "b" not in pkg.md5sums
+
+
 def test_read_missing(tmp_path):
     pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, FILES)))
     with pytest.raises(KeyError):

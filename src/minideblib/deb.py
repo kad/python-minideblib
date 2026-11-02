@@ -242,8 +242,10 @@ class DebPackage:
             raise DebError("empty control file")
         self.control: Paragraph = paras[0]
         self.md5sums: dict[str, str] = {}
-        for line in self.control_files.get("md5sums", b"").decode("utf-8", "replace").splitlines():
-            digest, _, path = line.partition(" ")
+        md5sums = self.control_files.get("md5sums", b"").decode("utf-8", "replace")
+        # only LF ends a line, like dpkg (str.splitlines also splits at U+2028 etc.)
+        for line in md5sums.split("\n"):
+            digest, _, path = line.removesuffix("\r").partition(" ")
             if digest and path.strip():
                 self.md5sums[path.strip()] = digest
 
