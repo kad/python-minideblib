@@ -429,3 +429,19 @@ def test_redact_url_linear_on_hostile_input(text) -> None:
 
 def test_redact_url_unchanged_output() -> None:
     assert redact_url("see http://u:p@h/x and ftp+x://a:b@c d") == "see http://h/x and ftp+x://c d"
+
+
+def test_debug_formatter_appends_tracebacks() -> None:
+    try:
+        raise RuntimeError("inner")
+    except RuntimeError:
+        import sys
+
+        info = sys.exc_info()
+    record = logging.LogRecord("minideblib", logging.ERROR, __file__, 1, "failed", (), info)
+    debug = cli._Formatter(time.time(), with_time=True).format(record)
+    assert debug.splitlines()[0].endswith("error: failed")
+    assert "Traceback (most recent call last):" in debug
+    assert debug.rstrip().endswith("RuntimeError: inner")
+    plain = cli._Formatter(time.time(), with_time=False).format(record)
+    assert plain == "minideb: error: failed"

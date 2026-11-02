@@ -15,6 +15,8 @@ import pytest
 from minideblib.errors import MinidebError
 from minideblib.mcp import startup
 from minideblib.mcp.startup import (
+    MAX_SECONDS,
+    MIN_RESPONSE_BYTES,
     RepositorySpec,
     ServerConfig,
     StartupError,
@@ -140,7 +142,7 @@ def test_all_options() -> None:
             no_download=True,
             allow_host=["deb.debian.org", "*.example.org"],
             allow_link_local=True,
-            max_response_bytes=1000,
+            max_response_bytes=4096,
             max_download_bytes=5000,
             call_timeout=5.0,
             download_timeout=60.0,
@@ -152,7 +154,7 @@ def test_all_options() -> None:
     assert cfg.allow_download is False
     assert cfg.allowed_hosts == ("deb.debian.org", "*.example.org")
     assert cfg.allow_link_local is True
-    assert cfg.max_response_bytes == 1000
+    assert cfg.max_response_bytes == 4096
     assert cfg.max_download_bytes == 5000
     assert cfg.call_timeout == 5.0
     assert cfg.download_timeout == 60.0
@@ -172,6 +174,7 @@ def test_config_is_frozen() -> None:
     [
         ("max_response_bytes", 0),
         ("max_response_bytes", -1),
+        ("max_response_bytes", 4095),
         ("max_download_bytes", 0),
         ("call_timeout", 0),
         ("call_timeout", float("nan")),
@@ -184,6 +187,23 @@ def test_config_is_frozen() -> None:
 def test_bad_numbers(name: str, value: float) -> None:
     with pytest.raises(StartupError, match=name.replace("_", "-")):
         build_config(_args(**{name: value}))
+
+
+@pytest.mark.parametrize("name", ["call_timeout", "download_timeout", "timeout"])
+def test_time_options_bounded(name: str) -> None:
+    assert MAX_SECONDS == 7 * 24 * 3600
+    assert getattr(build_config(_args(**{name: MAX_SECONDS})), name) == MAX_SECONDS
+    for value in (MAX_SECONDS + 1, 1e300):
+        option = name.replace("_", "-")
+        with pytest.raises(StartupError, match=rf"^--{option}: must be at most 604800 seconds"):
+            build_config(_args(**{name: value}))
+
+
+def test_max_response_bytes_minimum() -> None:
+    with pytest.raises(StartupError, match=r"--max-response-bytes: must be at least 4096"):
+        build_config(_args(max_response_bytes=100))
+    assert MIN_RESPONSE_BYTES == 4096
+    assert build_config(_args(max_response_bytes=4096)).max_response_bytes == 4096
 
 
 @pytest.mark.parametrize("host", ["http://x.org", "x.org:80", "", "a/b"])

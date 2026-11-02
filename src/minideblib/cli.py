@@ -5,7 +5,8 @@
 
 Repository commands query APT repositories given with ``--url`` or
 ``--sources``; ``deb`` commands inspect ``.deb`` files and ``dsc`` commands ``.dsc`` source
-package files (their OpenPGP signature is never verified).
+package files (their OpenPGP signature is never verified); ``mcp`` runs an MCP
+server for AI agents (:mod:`minideblib.mcp`).
 """
 
 from __future__ import annotations
@@ -730,8 +731,12 @@ def build_parser() -> argparse.ArgumentParser:
         parent: Any = sub,
         aliases: Sequence[str] = (),
         own: Sequence[str] = (),
+        epilog: str | None = None,
     ) -> Any:
-        sp = parent.add_parser(name, help=help_, description=help_, aliases=list(aliases))
+        extra: dict[str, Any] = {}
+        if epilog is not None:
+            extra = {"epilog": epilog, "formatter_class": argparse.RawDescriptionHelpFormatter}
+        sp = parent.add_parser(name, help=help_, description=help_, aliases=list(aliases), **extra)
         _add_global_options(sp, top=False, own=own)
         # report the canonical name even when an alias was typed
         sp.set_defaults(func=func, **{parent.dest: name})
@@ -799,6 +804,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("package")
     s.add_argument("--version", dest="want_version", metavar="V", help="select this version")
 
+    _add_mcp(add)
+
     dsc = sub.add_parser("dsc", help="inspect .dsc files", description="inspect .dsc files")
     _add_global_options(dsc, top=False)
     csub = dsc.add_subparsers(dest="dsc_command", required=True, metavar="DSC_COMMAND")
@@ -848,6 +855,102 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+MCP_EPILOG = """\
+security model:
+  - refuses to run as root (real, effective or saved uid 0, also in rootless containers)
+  - writes only below the base download directory and a private per-session
+    directory (mode 0700) under the temp location; never overwrites, never
+    follows symlinks
+  - every downloaded file is verified against a SHA256-or-stronger hash from the
+    repository index (--no-verify only affects index checks and prints a warning)
+  - repository metadata is unauthenticated (Release signatures are not verified)
+    and all repository text is untrusted data
+  - stdout carries only protocol messages; logs go to stderr with control
+    characters escaped and URL credentials redacted
+
+The server speaks MCP (JSON-RPC 2.0, one message per line) on stdin/stdout and exits
+with status 0 at EOF, SIGTERM or SIGINT, 2 when it cannot start. At EOF on stdin, as at
+SIGTERM or SIGINT, calls still running or queued are cancelled and get no response.
+The server waits for them up to 5 seconds, and exits anyway at most 7 seconds after a
+signal; a second signal exits at once. Repositories given with --url or --sources are
+named repo1, repo2, ...; without them the client names a repository URL in each call
+(the system sources are not read).
+
+example client configuration ("mcpServers" entry):
+  {"command": "minideb", "args": ["mcp", "--download-dir", "/home/user/debs"]}
+"""
+
+
+def cmd_mcp(ctx: Ctx) -> int:
+    from minideblib.mcp.run import run
+
+    return run(ctx.args)
+
+
+def _add_mcp(add: Callable[..., Any]) -> None:
+    s = add(
+        "mcp",
+        cmd_mcp,
+        "run an MCP server for AI agents on stdin/stdout (Linux and macOS)",
+        epilog=MCP_EPILOG,
+    )
+    # -c/-a/-j do not apply to the server (rejected by minideblib.mcp.run); no system sources
+    for action in s._actions:
+        if action.dest in ("components_after", "architectures_after", "json"):
+            action.help = argparse.SUPPRESS
+        elif action.dest == "sources":
+            action.help = (
+                "sources.list/.sources file or directory whose repositories are offered as "
+                "repo1, repo2, ... (default: none; the system sources are not read)"
+            )
+    g = s.add_argument_group("server options")
+    g.add_argument(
+        "--download-dir",
+        metavar="DIR",
+        help="base directory for downloads (default: the directory the server was started "
+        "in, checked when a download is requested); an explicit DIR must exist and be "
+        "writable, checked at start",
+    )
+    g.add_argument("--no-download", action="store_true", help="read-only server: no download tool")
+    g.add_argument(
+        "--allow-host",
+        action="append",
+        metavar="HOST",
+        help="only accept repositories on this host (repeatable; '*.example.org' matches "
+        "subdomains; file:// mirrors stay allowed; default: any host)",
+    )
+    g.add_argument(
+        "--allow-link-local",
+        action="store_true",
+        help="allow link-local addresses and cloud metadata host names (refused by default)",
+    )
+    g.add_argument(
+        "--max-response-bytes",
+        type=int,
+        metavar="N",
+        help="cap of one tool result message (default: 200000; at least 4096; results "
+        "carry their data twice for newer protocol versions, so about a third is usable)",
+    )
+    g.add_argument(
+        "--max-download-bytes",
+        type=int,
+        metavar="N",
+        help="cap of the total size of the files of one download_package call (default: 1 GiB)",
+    )
+    g.add_argument(
+        "--call-timeout",
+        type=float,
+        metavar="SECONDS",
+        help="time limit of one tool call (default: 120; at most 604800, 7 days)",
+    )
+    g.add_argument(
+        "--download-timeout",
+        type=float,
+        metavar="SECONDS",
+        help="time limit of one download_package call (default: 900; at most 604800, 7 days)",
+    )
+
+
 def _add_own_scope(p: argparse.ArgumentParser, *flags: str) -> None:
     """Per-command ``-c``/``-a`` (repeatable): they replace the global scope for the command."""
     if "-c" in flags:
@@ -889,7 +992,10 @@ def _add_probe_options(p: argparse.ArgumentParser) -> None:
 
 
 class _Formatter(logging.Formatter):
-    """``minideb: [+0.123s] <level>: <message>``; time only with ``-vv``, level from WARNING up."""
+    """``minideb: [+0.123s] <level>: <message>``; time only with ``-vv``, level from WARNING up.
+
+    With ``-vv`` a record's traceback (``exc_info``) follows the message.
+    """
 
     def __init__(self, start: float, with_time: bool) -> None:
         super().__init__()
@@ -900,6 +1006,8 @@ class _Formatter(logging.Formatter):
         text = record.getMessage()
         if record.levelno >= logging.WARNING:
             text = f"{record.levelname.lower()}: {text}"
+        if self.with_time and record.exc_info:  # -vv: with the traceback
+            text = f"{text}\n{self.formatException(record.exc_info).rstrip()}"
         stamp = f"[+{record.created - self.start:.3f}s] " if self.with_time else ""
         return f"minideb: {stamp}{text}"
 
