@@ -11,8 +11,12 @@ space or a tab. Lines starting with ``#`` are comments.
 
 :func:`parse_paragraphs` yields :class:`Paragraph` objects lazily from a
 ``str``, ``bytes`` or any iterable of ``str``/``bytes`` lines (text or binary
-file objects). Lines end only at CR, LF or CRLF, for every kind of input;
-Unicode separators such as U+2028 or a form feed are ordinary characters.
+file objects). As in apt, lines end only at LF, for every kind of input; one
+CR before an LF is dropped. A lone CR, Unicode separators such as U+2028 and
+a form feed are ordinary characters. Text streams opened with universal
+newlines (the default of :func:`open` in text mode) already turn a lone CR
+into a line end, so pass binary streams or text opened with ``newline=""``
+to keep that rule.
 One leading byte order mark (U+FEFF) is ignored. Malformed input raises
 :class:`ControlError` with a ``line N:`` message prefix.
 
@@ -72,13 +76,14 @@ class ControlError(MinidebError, ValueError):
 
 
 def _physical_lines(text: str) -> list[str]:
-    """Split *text* at CRLF, LF and CR only; a final terminator adds no line."""
-    if "\r" in text:
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    """Split *text* at LF only, dropping one CR before each LF.
+
+    A lone CR stays in the line; a final terminator adds no line.
+    """
     lines = text.split("\n")
     if lines[-1] == "":
         lines.pop()
-    return lines
+    return [line.removesuffix("\r") for line in lines]
 
 
 def _fold(value: str) -> str:
@@ -180,9 +185,10 @@ def decode_text(data: bytes, source: str = "") -> str:
 def _stream_lines(stream: Iterable[str] | Iterable[bytes]) -> Iterator[str]:
     """Physical lines of an iterable of ``str``/``bytes`` items.
 
-    Every item is used as it is yielded and ends a line: its trailing
-    terminator is removed, a CR, LF or CRLF inside it splits it further, and
-    an empty item is one empty line.
+    Every item is used as it is yielded and ends a line: its trailing LF or
+    CRLF is removed, an LF inside it splits it further (a lone CR does not),
+    and an empty item is one empty line. A text stream opened with universal
+    newlines has already split at lone CRs before this sees the lines.
     """
     label = getattr(stream, "name", None)
     warned = False

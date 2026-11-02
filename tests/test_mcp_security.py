@@ -186,6 +186,30 @@ def test_control_characters_never_reach_the_client(spawn: Spawner, tmp_path: Pat
         assert raw not in child.stderr
 
 
+def test_lone_cr_cannot_inject_stanzas_or_fields(spawn: Spawner, tmp_path: Path) -> None:
+    # like apt, only LF ends a line: a lone CR is part of the value, never a break
+    smuggle = "hi\r\rPackage: injected\rVersion: 9.9\rDescription: injected stanza"
+    repo = _hostile_repo(
+        tmp_path / "repo",
+        [
+            _paragraph("legit-one", Description=smuggle),
+            _paragraph("legit-two", Description="ok\rDepends: evil"),
+            _paragraph("legit-three"),
+        ],
+    )
+    child = _session(spawn, "--url", repo, "mcp", "--download-dir", str(tmp_path))
+    found = structured(child.client.call("search_packages", {"suite": SUITE, "pattern": "*"}))
+    assert sorted(p["name"] for p in found["packages"]) == ["legit-one", "legit-three", "legit-two"]
+    for row in found["packages"]:
+        assert "\r" not in row["description"]
+    info = structured(child.client.call("package_info", {"suite": SUITE, "name": "legit-two"}))
+    fields = dict(info["packages"][0]["fields"])
+    assert "Depends" not in fields
+    assert all("\r" not in v for v in fields.values())
+    child.stop()
+    child.assert_pure_stdout()
+
+
 def test_megabyte_fields_are_truncated_with_markers(spawn: Spawner, tmp_path: Path) -> None:
     big = 1024 * 1024
     repo = _hostile_repo(

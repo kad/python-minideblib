@@ -123,6 +123,16 @@ def test_packages_component_filter_unknown_records_problem(tmp_path):
     assert "nope" in c.problems[0]
 
 
+def test_malformed_index_is_a_problem_not_a_failure(tmp_path):
+    base = make_repo(tmp_path, packages=b"Package: a\nno colon here\n")
+    c = RepoClient.from_url(base, suites=[SUITE])
+    assert c.packages(SUITE, arch="amd64") == []
+    [problem] = c.problems
+    assert "malformed" in problem and "line 2" in problem
+    assert c.packages(SUITE, arch="amd64") == []  # cached: recorded once
+    assert len(c.problems) == 1
+
+
 def test_records_are_frozen(tmp_path):
     base = make_repo(tmp_path)
     r = RepoClient.from_url(base, suites=[SUITE]).packages(SUITE)[0]

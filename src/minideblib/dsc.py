@@ -142,7 +142,9 @@ def _merge_files(fields: Paragraph) -> list[DscFile]:
 
 def _parse_package_list(fields: Paragraph) -> list[PackageListEntry]:
     out = []
-    for line in fields.get("Package-List", "").splitlines():
+    # like the control parser: only LF ends a line (str.splitlines also splits at
+    # form feeds, U+2028 and other separators)
+    for line in fields.get("Package-List", "").split("\n"):
         parts = line.split()
         if not parts:
             continue

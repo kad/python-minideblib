@@ -35,7 +35,7 @@ from minideblib.checksums import (
     is_weak,
     parse_multiline_hashes,
 )
-from minideblib.control import Paragraph
+from minideblib.control import ControlError, Paragraph
 from minideblib.dsc import Dsc
 from minideblib.errors import MinidebError
 from minideblib.repo import dep11
@@ -1073,7 +1073,15 @@ class RepoClient:
                         raise
                     log.debug("%s missing, trying next candidate", redact_url(e.url))
                     continue
-                parsed = _parse(kind, data)
+                try:
+                    parsed = _parse(kind, data)
+                except ControlError as e:
+                    # one broken index must not fail the whole query
+                    self._problem(
+                        f"{entry.suite}: {cand.path} at {redact_url(entry.uri)}: "
+                        f"malformed index ignored: {e}"
+                    )
+                    break
                 log.debug("parsed %s: %d entries", cand.path, _count(parsed))
                 result = (cand.path, parsed)
                 with self._lock:

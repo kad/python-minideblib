@@ -151,8 +151,12 @@ def parse_one_line(line: str) -> SourceEntry | None:
 
 
 def parse_sources_list(text: str) -> list[SourceEntry]:
-    """Parse the text of a one-line-format file."""
-    return [e for line in text.splitlines() if (e := parse_one_line(line)) is not None]
+    """Parse the text of a one-line-format file.
+
+    Lines end at LF only, like apt; one CR before the LF is dropped.
+    """
+    lines = (line.removesuffix("\r") for line in text.split("\n"))
+    return [e for line in lines if (e := parse_one_line(line)) is not None]
 
 
 _DEB822_CONSUMED = {"types", "uris", "suites", "components", "enabled"}

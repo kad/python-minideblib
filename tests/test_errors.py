@@ -112,14 +112,15 @@ def test_new_classes_have_value_error_base_and_are_exported():
 
 
 def test_packages_index_with_non_field_line(tmp_path):
-    from minideblib.control import ControlError
     from minideblib.repo.client import RepoClient
     from tests.fixtures.repo import make_repo
 
     base = make_repo(tmp_path, packages="Package: a\nnot a field line\n", arches=["amd64"])
-    with pytest.raises(ControlError) as ei:
-        RepoClient.from_url(base, suites=[SUITE]).packages(SUITE)
-    _is_data_error(ei.value, ValueError)
+    client = RepoClient.from_url(base, suites=[SUITE])
+    # a malformed index is recorded as a problem; the query goes on without it
+    assert client.packages(SUITE) == []
+    [problem] = client.problems
+    assert "malformed index ignored: line 2:" in problem
 
 
 def test_bad_release(tmp_path):
