@@ -253,6 +253,20 @@ access, `KeyError` for a missing `Paragraph` field, and errors of caller-supplie
 `skip_absolute_symlinks=True`, which leaves them out (logged as warnings) and returns the
 skipped `(path, target)` pairs.
 
+`Fetcher.download(url, fileobj, max_bytes=..., expected_size=..., expected_hashes=...)`
+streams a file to disk in chunks and checks its size and hashes on the way (raising
+`HashMismatch`; the caller discards the output then); it retries only before the first
+byte is written. `RepoClient.plan_binary(suite, name)` and `plan_source(suite, name)` turn a
+package into `DownloadPlan`s of `FileSpec(name, url, size, hashes)` from the indices alone
+(one plan per architecture, one for an `Architecture: all` package, which every
+architecture filter includes; the `.dsc` first), and
+`group_packages(records)` groups records per version with their architectures and
+`Multi-Arch` value. `search()` takes optional `components=`, `architectures=` and
+`kind="source"`. `client.problems` keeps the newest 1000 messages
+(`problems_mark()`/`problems_since(mark)` give those of one call), and parsed indices are
+kept within an estimated `cache_budget_bytes` (default 512 MiB, least recently used dropped
+first).
+
 The snippet was run as written. Runnable, annotated scripts are in [`examples/`](examples/)
 (with sample output in [`examples/README.md`](examples/README.md)); run one with
 `uv run python examples/01_browse_repository.py`.

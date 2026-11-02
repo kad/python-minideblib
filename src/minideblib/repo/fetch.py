@@ -6,25 +6,31 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import http.client
 import ipaddress
 import logging
+import os
 import re
 import socket
 import ssl
+import stat
 import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Collection, Generator, Iterator, Mapping
 from dataclasses import dataclass
-from typing import IO, Any, Protocol, TypeVar
+from typing import IO, Any, BinaryIO, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 
+from minideblib.checksums import ALGORITHMS, ChecksumError
 from minideblib.errors import MinidebError
 
 __all__ = [
     "CancelToken",
+    "DownloadResult",
     "FetchCancelled",
     "FetchError",
     "FetchTimeout",
@@ -117,10 +123,23 @@ class HostNotAllowed(FetchError):
     """The host of the URL or of a redirect target is refused by the host policy."""
 
 
+@dataclass(frozen=True)
+class DownloadResult:
+    """What :meth:`Fetcher.download` wrote: the byte count and hex digests.
+
+    *digests* holds a lowercase hex digest for every algorithm of
+    ``expected_hashes`` and always ``sha256``.
+    """
+
+    size: int
+    digests: dict[str, str]
+
+
 class CancelToken:
     """A thread-safe cancellation flag for one or more calls.
 
-    Pass it as ``token=`` to :meth:`Fetcher.get` or :meth:`Fetcher.exists`;
+    Pass it as ``token=`` to :meth:`Fetcher.get`, :meth:`Fetcher.exists` or
+    :meth:`Fetcher.download`;
     :meth:`cancel` (from any thread) makes those calls raise
     :class:`FetchCancelled` before their next attempt, during their backoff
     wait or between two chunks of a response body. A cancelled token stays
@@ -514,6 +533,9 @@ class Fetcher:
     inside it, also by library code (such as
     :class:`~minideblib.repo.client.RepoClient`) that calls :meth:`get` and
     :meth:`exists` without them.
+
+    :meth:`download` streams a body into a file object with its own size
+    limit and on-the-fly hashing (see there).
     """
 
     def __init__(
@@ -637,6 +659,7 @@ class Fetcher:
         url: str,
         retry_status: bool = True,
         cancelled: threading.Event | None = None,
+        retry_ok: Callable[[], bool] | None = None,
     ) -> _T:
         """Run ``attempt``, retrying retryable FetchErrors with backoff.
 
@@ -644,6 +667,7 @@ class Fetcher:
         *attempt* receives the 1-based attempt number (for logging).
         *cancelled* (default: the event current at the start) applies to the
         whole call, as do the token and deadline of :meth:`_call_scope`.
+        When *retry_ok* returns false, a failure is not retried.
         """
         if cancelled is None:
             cancelled = self._current_cancel()
@@ -665,6 +689,8 @@ class Fetcher:
                 except FetchError as stop:
                     raise stop from e
                 if n >= retries or not (e.transient or (retry_status and e.retryable)):
+                    raise
+                if retry_ok is not None and not retry_ok():
                     raise
                 delay = min(self.retry_delay * 2**n, _MAX_DELAY)
                 log.debug(
@@ -700,6 +726,7 @@ class Fetcher:
     def _open(self, url: str, method: str, attempt: int = 1) -> _Response:
         _check_scheme(url)
         self._check_host(url)
+        _check_regular_file(url)
         timeout = self.timeout
         remaining = self._current_call().remaining()
         if remaining is not None:
@@ -781,48 +808,175 @@ class Fetcher:
 
     def _get_once(self, url: str, attempt: int = 1) -> bytes:
         started = time.monotonic()
-        call = self._current_call()
         resp = self._open(url, "GET", attempt)
-        # read1 returns what has arrived, so that the checks between
-        # chunks also happen on a slow connection
-        read = getattr(resp, "read1", resp.read)
-        sock = _socket_of(resp) if call.deadline is not None else None
         try:
             expected = _content_length(resp)
             if expected is not None and expected > self.max_bytes:
                 raise FetchError(f"{redact_url(url)} exceeds {self.max_bytes} bytes", url)
             chunks: list[bytes] = []
             total = 0
-            while True:
-                call.check(url)
-                remaining = call.remaining()
-                if sock is not None and remaining is not None and sock.fileno() >= 0:
-                    # each read ends by the deadline, not only the first one
-                    sock.settimeout(max(min(self.timeout, remaining), 0.001))
-                try:
-                    chunk = read(_CHUNK)
-                except (OSError, http.client.HTTPException) as e:
-                    raise FetchError(
-                        f"error reading {redact_url(url)}: {e}",
-                        url,
-                        transient=_is_transient(e, url),
-                    ) from e
-                if not chunk:
-                    break
+            for chunk in self._chunks(resp, url):
                 total += len(chunk)
                 if total > self.max_bytes:
                     raise FetchError(f"{redact_url(url)} exceeds {self.max_bytes} bytes", url)
                 chunks.append(chunk)
-            if expected is not None and total != expected:
-                raise FetchError(
-                    f"truncated body from {redact_url(url)}: got {total} of {expected} bytes",
-                    url,
-                    transient=_is_network(url),
-                )
+            _check_complete(url, total, expected)
             self._log_request("GET", url, _status(resp), started, total, attempt)
             return b"".join(chunks)
         finally:
             resp.close()
+
+    def _chunks(
+        self, resp: _Response, url: str, cancelled: threading.Event | None = None
+    ) -> Iterator[bytes]:
+        """The body of *resp* in pieces of at most ``_CHUNK`` bytes.
+
+        Before every read the call's token and deadline (and *cancelled*)
+        are checked and the socket timeout is capped to the time left.
+        Read errors become :class:`FetchError`.
+        """
+        call = self._current_call()
+        # read1 returns what has arrived, so that the checks between
+        # chunks also happen on a slow connection
+        read = getattr(resp, "read1", resp.read)
+        sock = _socket_of(resp) if call.deadline is not None else None
+        while True:
+            if cancelled is not None and cancelled.is_set():
+                raise FetchCancelled(f"request cancelled: {redact_url(url)}", url)
+            call.check(url)
+            remaining = call.remaining()
+            if sock is not None and remaining is not None and sock.fileno() >= 0:
+                # each read ends by the deadline, not only the first one
+                sock.settimeout(max(min(self.timeout, remaining), 0.001))
+            try:
+                chunk = read(_CHUNK)
+            except (OSError, http.client.HTTPException) as e:
+                raise FetchError(
+                    f"error reading {redact_url(url)}: {e}",
+                    url,
+                    transient=_is_transient(e, url),
+                ) from e
+            if not chunk:
+                return
+            yield chunk
+
+    def download(
+        self,
+        url: str,
+        out: BinaryIO,
+        *,
+        max_bytes: int,
+        expected_size: int | None = None,
+        expected_hashes: Mapping[str, str] | None = None,
+        token: CancelToken | None = None,
+        deadline: float | None = None,
+    ) -> DownloadResult:
+        """Stream the body served at *url* into *out*, hashing it on the way.
+
+        The body is written in chunks as it arrives (never held in memory
+        as a whole). Nothing is written before the response status and
+        headers have been checked: an HTTP error, a ``Content-Length``
+        above *max_bytes* or different from *expected_size*, and a refused
+        host or redirect leave *out* untouched. More than *max_bytes* bytes
+        (this argument, not the Fetcher's ``max_bytes``) raise
+        :class:`FetchError` as soon as the limit is passed.
+
+        *expected_hashes* maps hashlib names from
+        :data:`minideblib.checksums.ALGORITHMS` to hex digests (compared
+        case-insensitively); every one is checked. An unknown name raises
+        :class:`~minideblib.checksums.ChecksumError` before any request.
+        A size other than *expected_size*, or a digest mismatch, raises
+        :class:`~minideblib.repo.release.HashMismatch`, possibly after the
+        whole body was written: on any exception the caller must discard
+        what *out* received. ``download`` itself enforces no minimum: empty
+        or weak-only *expected_hashes* are accepted (empty means no
+        verification); callers such as the MCP server must require SHA256
+        or stronger.
+
+        *out* is neither flushed nor closed; the caller does that (and
+        fsyncs if needed). A failing ``out.write`` (such as ``ENOSPC``)
+        raises :class:`FetchError` (not transient, never retried) with the
+        :class:`OSError` chained. A ``write`` returning None counts as
+        having written everything.
+
+        Retries (see the ``retries`` argument) happen only while nothing has
+        been written to *out*; a failure after the first byte raises at
+        once. *token*, *deadline*, an enclosing :meth:`scope`,
+        :meth:`cancel` and the host policy apply as for :meth:`get`; the
+        token, the deadline and :meth:`cancel` are also checked between
+        chunks. ``file:`` URLs are read in chunks with the same limits.
+        """
+        if max_bytes < 0:
+            raise ValueError(f"max_bytes must not be negative, not {max_bytes}")
+        algs = _download_algorithms(expected_hashes)
+        _check_scheme(url)
+        self._check_host(url)
+        if expected_size is not None and expected_size > max_bytes:
+            raise FetchError(
+                f"{redact_url(url)} exceeds {max_bytes} bytes (expected {expected_size})", url
+            )
+        written = [0]
+        cancelled = self._current_cancel()
+        with self._call_scope(token, deadline):
+            total, digests = self._with_retries(
+                lambda n: self._download_once(
+                    url, out, max_bytes, expected_size, algs, written, cancelled, n
+                ),
+                url,
+                cancelled=cancelled,
+                retry_ok=lambda: written[0] == 0,
+            )
+        for name, want in algs.items():
+            if digests[name] != want:
+                raise _hash_mismatch(
+                    f"{redact_url(url)}: {name} {digests[name]} != expected {want}"
+                )
+        return DownloadResult(total, digests)
+
+    def _download_once(
+        self,
+        url: str,
+        out: BinaryIO,
+        max_bytes: int,
+        expected_size: int | None,
+        algs: Mapping[str, str],
+        written: list[int],
+        cancelled: threading.Event,
+        attempt: int,
+    ) -> tuple[int, dict[str, str]]:
+        """One attempt of :meth:`download`; ``written[0]`` counts bytes passed to *out*."""
+        started = time.monotonic()
+        resp = self._open(url, "GET", attempt)
+        try:
+            declared = _content_length(resp)
+            if declared is not None and declared > max_bytes:
+                raise FetchError(f"{redact_url(url)} exceeds {max_bytes} bytes", url)
+            if declared is not None and expected_size is not None and declared != expected_size:
+                raise _hash_mismatch(
+                    f"{redact_url(url)}: size {declared} != expected {expected_size}"
+                )
+            limit = max_bytes if expected_size is None else expected_size
+            hashers = {name: hashlib.new(name, usedforsecurity=False) for name in {*algs, "sha256"}}
+            total = 0
+            for chunk in self._chunks(resp, url, cancelled):
+                if total + len(chunk) > limit:
+                    if expected_size is not None:
+                        raise _hash_mismatch(
+                            f"{redact_url(url)}: size exceeds the expected {expected_size} bytes"
+                        )
+                    raise FetchError(f"{redact_url(url)} exceeds {max_bytes} bytes", url)
+                total += len(chunk)
+                for hasher in hashers.values():
+                    hasher.update(chunk)
+                _write_all(out, chunk, written, url)
+            _check_complete(url, total, declared)
+            if expected_size is not None and total != expected_size:
+                raise _hash_mismatch(f"{redact_url(url)}: size {total} != expected {expected_size}")
+            self._log_request("GET", url, _status(resp), started, total, attempt)
+        finally:
+            resp.close()
+        digests = {name: hashers[name].hexdigest() for name in [*algs, "sha256"]}
+        return total, digests
 
     def _opened(self, url: str, method: str, attempt: int) -> _Response:
         """:meth:`_open` plus a request log line for the successful response."""
@@ -870,6 +1024,74 @@ class Fetcher:
                 if e.status in (404, 410):
                     return False
                 raise
+
+
+_ALGORITHM_NAMES = frozenset(alg.name for alg in ALGORITHMS)
+
+
+def _download_algorithms(expected: Mapping[str, str] | None) -> dict[str, str]:
+    """*expected* with lowercase digests; ChecksumError for an unknown algorithm."""
+    out: dict[str, str] = {}
+    for name, digest in (expected or {}).items():
+        if name not in _ALGORITHM_NAMES:
+            raise ChecksumError(f"unsupported checksum algorithm {name!r}")
+        out[name] = digest.strip().lower()
+    return out
+
+
+def _hash_mismatch(message: str) -> Exception:
+    """A :class:`~minideblib.repo.release.HashMismatch` (imported late: no cycle)."""
+    from minideblib.repo.release import HashMismatch
+
+    return HashMismatch(message)
+
+
+def _write_all(out: BinaryIO, chunk: bytes, written: list[int], url: str) -> None:
+    """Write all of *chunk* (also through a raw file that writes partially).
+
+    ``write`` returning None counts as everything written; an
+    :class:`OSError` becomes a (not transient) :class:`FetchError`.
+    """
+    data = chunk
+    while data:
+        try:
+            n = out.write(data)
+        except OSError as e:
+            raise FetchError(f"cannot write {redact_url(url)} to the output: {e}", url) from e
+        if n is None:
+            n = len(data)
+        if n <= 0:  # e.g. a non-blocking raw stream
+            raise FetchError(f"cannot write {redact_url(url)} to the output: no data accepted", url)
+        written[0] += n
+        data = data[n:]
+
+
+def _check_complete(url: str, total: int, declared: int | None) -> None:
+    """FetchError (transient over the network) for a body shorter than announced."""
+    if declared is not None and total != declared:
+        raise FetchError(
+            f"truncated body from {redact_url(url)}: got {total} of {declared} bytes",
+            url,
+            transient=_is_network(url),
+        )
+
+
+def _check_regular_file(url: str) -> None:
+    """For a ``file:`` URL: FetchError unless it names a regular file (symlinks followed).
+
+    Opening a FIFO or a device could block beyond any deadline. A path
+    that cannot be looked up is left to the opener (which reports it, e.g.
+    as missing).
+    """
+    parts = urlsplit(url)
+    if parts.scheme.lower() != "file":
+        return
+    try:
+        info = os.stat(url2pathname(parts.path))
+    except (OSError, ValueError):
+        return
+    if not stat.S_ISREG(info.st_mode):
+        raise FetchError(f"not a regular file: {redact_url(url)}", url)
 
 
 def _socket_of(resp: _Response) -> socket.socket | None:
