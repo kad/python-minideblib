@@ -133,11 +133,11 @@ class Recorder(Fetcher):
         self.urls = []
         self.status = status
 
-    def get(self, url):
+    def get(self, url, **kw):
         self.urls.append(url)
         if "/by-hash/SHA512/" in url and self.status != 404:
             raise FetchError("boom", url, self.status)
-        return super().get(url)
+        return super().get(url, **kw)
 
 
 def _only_sha256_by_hash(tmp_path):

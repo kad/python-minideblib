@@ -654,7 +654,7 @@ def test_ctrl_c_during_probing_returns_130_promptly(monkeypatch, capsys):
     assert main is not None
 
     class Slow(cli.Fetcher):
-        def exists(self, url: str) -> bool:
+        def exists(self, url: str, **kw: object) -> bool:
             if url.endswith("/dists/stable/InRelease"):
                 time.sleep(0.2)  # let the main thread start waiting for results
                 signal.pthread_kill(main, signal.SIGINT)

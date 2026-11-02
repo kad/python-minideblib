@@ -79,13 +79,13 @@ class RecordingFetcher(Fetcher):
         self.gets: list[str] = []
         self.exists_calls: list[str] = []
 
-    def get(self, url: str) -> bytes:
+    def get(self, url: str, **kw: Any) -> bytes:
         self.gets.append(url)
-        return super().get(url)
+        return super().get(url, **kw)
 
-    def exists(self, url: str) -> bool:
+    def exists(self, url: str, **kw: Any) -> bool:
         self.exists_calls.append(url)
-        return super().exists(url)
+        return super().exists(url, **kw)
 
 
 def test_components_and_architectures(tmp_path):
@@ -503,7 +503,7 @@ class ProbeFetcher(Fetcher):
         self.active = 0
         self.max_active = 0
 
-    def exists(self, url: str) -> bool:
+    def exists(self, url: str, **kw: object) -> bool:
         with self.lock:
             self.calls += 1
             self.active += 1
@@ -942,7 +942,7 @@ class AlwaysFails(Fetcher):
         self.err = err
         self.calls = 0
 
-    def exists(self, url: str) -> bool:
+    def exists(self, url: str, **kw: object) -> bool:
         self.calls += 1
         raise self.err
 
@@ -1083,7 +1083,7 @@ class BlockingFetcher(Fetcher):
         self.cancelled += 1
         super().cancel()
 
-    def exists(self, url: str) -> bool:
+    def exists(self, url: str, **kw: object) -> bool:
         with self.lock:
             self.calls += 1
             self.daemon.append(threading.current_thread().daemon)
@@ -1109,7 +1109,9 @@ def test_probe_interrupt_is_prompt_and_workers_are_daemon():
         with pytest.raises(KeyboardInterrupt):
             c.suites()
         assert time.monotonic() - started < 3  # in-flight probes are not waited for
-        assert f.cancelled == 1  # retries of in-flight probes are cancelled
+        # the probes' retries are stopped by a token of the run, not by
+        # Fetcher.cancel(), which would also stop requests of other threads
+        assert f.cancelled == 0
         assert f.daemon and all(f.daemon)  # interpreter exit does not wait for them
         assert f.calls <= client_mod.PROBE_WORKERS  # queued probes are dropped
     finally:
@@ -1120,7 +1122,7 @@ def test_probe_interrupt_is_prompt_and_workers_are_daemon():
 
 def test_probe_worker_exception_propagates():
     class Broken(Fetcher):
-        def exists(self, url: str) -> bool:
+        def exists(self, url: str, **kw: object) -> bool:
             raise RuntimeError("bug in fetcher")
 
     c = RepoClient.from_url("http://h", fetcher=Broken(retries=0))

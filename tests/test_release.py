@@ -26,13 +26,13 @@ class RecordingFetcher(Fetcher):
         self.missing = missing
         self.fail = fail
 
-    def get(self, url):
+    def get(self, url, **kw):
         self.urls.append(url)
         if any(url.endswith(m) for m in self.missing):
             raise FetchError(f"HTTP 404 fetching {url}", url, 404)
         if any(url.endswith(m) for m in self.fail):
             raise FetchError(f"HTTP 500 fetching {url}", url, 500)
-        return super().get(url)
+        return super().get(url, **kw)
 
 
 @pytest.fixture
@@ -629,7 +629,7 @@ def test_dists_url_accepts_safe_suites(suite, tail):
 
 def test_fetch_release_unsafe_suite_makes_no_request():
     class NoFetch(Fetcher):
-        def get(self, url: str) -> bytes:
+        def get(self, url: str, **kw: object) -> bytes:
             raise AssertionError(url)
 
     with pytest.raises(ReleaseError):

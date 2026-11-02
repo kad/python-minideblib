@@ -283,6 +283,15 @@ where it matters.
   rejected (exit status 2). `--no-verify` (`verify=False`) skips all hash checks.
 - A redirect from `https://` to `http://` is refused, as is a redirect to any scheme other
   than http(s).
+- Link-local addresses (`169.254.0.0/16`, `fe80::/10`), the metadata service addresses
+  `fd00:ec2::254` and `100.100.100.200` and the cloud metadata host names `metadata`,
+  `metadata.google.internal` and `instance-data` are refused, also as redirect targets and
+  when a host name resolves to such an address (`Fetcher(block_link_local=False)` allows
+  them); loopback and private addresses stay allowed. `Fetcher(allowed_hosts=[...])` limits
+  http(s) requests and redirects to the listed hosts (`*.example.org` matches sub-domains).
+  Through a proxy from `http_proxy`/`https_proxy` the proxy resolves host names, so only the
+  URL text is checked (literal link-local and metadata URLs are still refused); the proxy is
+  trusted configuration.
 - Credentials in URLs (`http://user:password@host/`) are rejected; they would not be used
   and could leak to a proxy. `file://` URLs must not contain `..` components (also
   percent-encoded).
