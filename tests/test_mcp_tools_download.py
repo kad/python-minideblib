@@ -603,6 +603,80 @@ def test_source_set_all_or_none(repo: tuple[str, Path], dest: Path) -> None:
     assert _listing(dest) == []
 
 
+@pytest.mark.parametrize("change", ["size", "content"])
+def test_mismatch_messages_name_the_file_not_the_url(
+    repo: tuple[str, Path], dest: Path, change: str
+) -> None:
+    def corrupt(path: Path) -> None:
+        data = path.read_bytes()
+        path.write_bytes(data + b"\0" if change == "size" else b"X" * len(data))
+
+    corrupt(repo[1] / "pool/main/s/sample-tool" / DEB_ARM64)
+    corrupt(repo[1] / "pool/main/s/sample-pkg" / TOOL_TAR)
+    tool = _tool(_config(repo[0], dest))
+    r = _call(tool, suite=SUITE, name="sample-tool", architectures=["amd64", "arm64"])
+    status = {f["architecture"]: f for f in r["files"]}
+    message = status["arm64"]["message"]
+    assert status["arm64"]["status"] == "error"
+    assert message.startswith(DEB_ARM64), message
+    assert "file:" not in message and str(repo[1]) not in message and "pool/" not in message
+    with pytest.raises(ToolError) as info:
+        _call(tool, suite=SUITE, name="sample-pkg", kind="source")
+    text = str(info.value)
+    assert text.startswith(TOOL_TAR), text
+    assert text.endswith("; nothing of the source package was published")
+    assert "file:" not in text and str(repo[1]) not in text and "pool/" not in text
+
+
+def test_result_sweep_keeps_truncation_markers_whole(tmp_path: Path) -> None:
+    from minideblib.mcp.repos import RepoManager, clean_text
+    from minideblib.mcp.toolkit import FIELD_LIMIT
+    from minideblib.mcp.tools_download import DownloadTools
+
+    tools = DownloadTools(RepoManager(ServerConfig(download_dir=str(tmp_path))))
+    value = clean_text("a" * (FIELD_LIMIT + 1000), FIELD_LIMIT)
+    handler = tools.wrap(lambda call: {"files": [], "message": value})
+    out = handler(ToolCall({}, CancelToken(), time.monotonic() + 30))
+    assert isinstance(out, dict)
+    assert out["message"] == value
+    assert out["message"].endswith("…[truncated 1000 chars]")
+
+
+@pytest.mark.parametrize("kind", ["binary", "source"])
+def test_failed_download_removes_the_subdirectories_it_created(
+    repo: tuple[str, Path], dest: Path, kind: str
+) -> None:
+    corrupt = (
+        repo[1]
+        / "pool/main/s"
+        / (f"sample-data/{DEB_ALL}" if kind == "binary" else f"sample-pkg/{TOOL_TAR}")
+    )
+    corrupt.write_bytes(b"X" * len(corrupt.read_bytes()))
+    (dest / "keep").mkdir()
+    name = "sample-data" if kind == "binary" else "sample-pkg"
+    tool = _tool(_config(repo[0], dest))
+    for sub in ("keep/new/deeper", "fresh"):
+        with pytest.raises(ToolError):
+            _call(tool, suite=SUITE, name=name, kind=kind, subdirectory=sub)
+    assert _listing(dest) == ["keep"]  # it existed before: kept
+    assert _listing(dest / "keep") == []
+
+
+def test_remove_created_only_touches_empty_created_directories(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    with WriteRoot.open(tmp_path) as root:
+        with root.subdir(["a", "b", "c"]) as sub:
+            assert sub.created == (1, 2)
+        (tmp_path / "a" / "b" / "file").write_bytes(b"x")
+        root.remove_created(["a", "b", "c"], (1, 2))
+        assert sorted(p.name for p in (tmp_path / "a" / "b").iterdir()) == ["file"]
+        (tmp_path / "a" / "b" / "file").unlink()
+        root.remove_created(["a", "b", "c"], (1, 2))
+        assert _listing(tmp_path / "a") == []
+        with root.subdir(["a"]) as again:
+            assert again.created == ()
+
+
 def test_source_conflict_publishes_nothing(tool: Tool, dest: Path) -> None:
     (dest / TOOL_TAR).write_bytes(b"mine")
     with pytest.raises(ToolError, match="different"):

@@ -166,6 +166,8 @@ class WriteRoot:
     def __init__(self, fd: int, path: str) -> None:
         self._fd: int | None = fd
         self.path = path
+        #: positions in the *parts* of :meth:`subdir` of the components it created
+        self.created: tuple[int, ...] = ()
 
     @classmethod
     def open(cls, path: str | Path, *, create: bool = False, private: bool = False) -> WriteRoot:
@@ -286,18 +288,22 @@ class WriteRoot:
         (:class:`UnsafeNameError` otherwise, before anything is created). A
         component that is a symlink, not a directory, or writable by all users
         without the sticky bit raises :class:`WriteRootError`. An empty *parts*
-        opens this directory again. The result is a new, independent root.
+        opens this directory again. The result is a new, independent root;
+        its :attr:`created` lists the positions of the components this call
+        created (for :meth:`remove_created`).
         """
         if isinstance(parts, (str, bytes)):
             raise TypeError("parts must be a sequence of names, not a string")
         names = [_check_name(part, "directory name") for part in parts]
         fd = os.dup(self.fileno())
         shown = self.path
+        created: list[int] = []
         try:
-            for name in names:
+            for i, name in enumerate(names):
                 shown = os.path.join(shown, name)
                 try:
                     os.mkdir(name, 0o777, dir_fd=fd)
+                    created.append(i)
                 except FileExistsError:
                     pass
                 except OSError as exc:
@@ -320,7 +326,38 @@ class WriteRoot:
         except BaseException:
             os.close(fd)
             raise
-        return WriteRoot(fd, shown)
+        sub = WriteRoot(fd, shown)
+        sub.created = tuple(created)
+        return sub
+
+    def remove_created(self, parts: Sequence[str], created: Sequence[int]) -> None:
+        """Remove the directories ``parts[i]`` (*i* in *created*) below this root if empty.
+
+        For undoing :meth:`subdir`: *created* is its :attr:`created`. The
+        path is walked again from this root without following symlinks,
+        deepest directory first; one that is gone already is skipped, and a
+        component that is replaced or not empty stops the removal (nothing
+        else is touched). Never raises ``OSError``.
+        """
+        if not created:
+            return
+        fds = [os.dup(self.fileno())]
+        try:
+            for name in parts[: max(created)]:
+                try:
+                    fds.append(os.open(name, _DIR_FLAGS, dir_fd=fds[-1]))
+                except OSError:
+                    return
+            for i in sorted(created, reverse=True):
+                try:
+                    os.rmdir(parts[i], dir_fd=fds[i])
+                except FileNotFoundError:
+                    continue  # removed already
+                except OSError:
+                    return
+        finally:
+            for fd in fds:
+                os.close(fd)
 
     # -- files -----------------------------------------------------------------------
 

@@ -151,6 +151,18 @@ def test_records_are_frozen(tmp_path):
         r.suite = "x"  # ty: ignore[invalid-assignment]  # frozen record, checking it raises
 
 
+def test_malformed_source_hash_field_is_a_problem(tmp_path):
+    bad = {**SRCS[0], "Checksums-Sha1": "\n abc 10\n"}
+    base = make_repo(tmp_path, sources=[bad, SRCS[1]])
+    c = RepoClient.from_url(base, suites=[SUITE])
+    recs = c.sources(SUITE)
+    assert [r.name for r in recs] == ["hello", "legacy"]  # the record is kept
+    [problem] = c.problems
+    assert problem.startswith(f"{SUITE}: source hello unified: malformed Checksums-Sha1 ignored: ")
+    c.sources(SUITE)
+    assert len(c.problems) == 1  # noted once
+
+
 def test_sources_records(tmp_path):
     base = make_repo(tmp_path, sources=SRCS)
     c = RepoClient.from_url(base, suites=[SUITE])

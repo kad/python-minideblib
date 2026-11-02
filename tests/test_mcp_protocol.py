@@ -1095,6 +1095,36 @@ def test_overlapping_serve_refused():
     assert sys.stdout is not sys.stderr
 
 
+class _ClosedPipe(io.RawIOBase):
+    """A stdout whose reader has gone away."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b: Any) -> int:
+        self.writes += 1
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+def test_broken_stdout_ends_the_session(caplog: pytest.LogCaptureFixture) -> None:
+    ping = b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n'
+    stdin = io.BytesIO(ping * 3)
+    out = _ClosedPipe()
+    server = McpServer(
+        _tools(), name="n", version="1", instructions="", stdin=stdin, stdout=cast(BinaryIO, out)
+    )
+    with caplog.at_level(logging.INFO, logger="minideblib.mcp"):
+        assert server.serve() == 0
+    assert out.writes == 1
+    # the session ended after the failed write: the later lines were never read
+    assert stdin.read() == ping * 2
+    assert "stdout closed; ending the session" in caplog.text
+
+
 def test_serve_is_single_use():
     server = McpServer(
         _tools(), name="n", version="1", instructions="", stdin=io.BytesIO(), stdout=io.BytesIO()

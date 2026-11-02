@@ -86,7 +86,8 @@ Decisions where the MCP and JSON-RPC texts leave a choice:
   ``print()`` and logging in handlers cannot corrupt the stream; protocol
   messages go only to the ``stdout`` object given. Writes to file
   descriptor 1 by other means cannot be intercepted.
-* **Shutdown**: on EOF (or a read error) every queued or running call is
+* **Shutdown**: on EOF, a read error or a failed write to stdout (checked
+  before the next line is read) every queued or running call is
   cancelled and :meth:`McpServer.serve` returns 0 once the worker has
   finished, or after :data:`SHUTDOWN_GRACE` seconds (5 s) if a handler
   ignores the cancellation (the worker is a daemon thread and its late
@@ -556,6 +557,9 @@ class McpServer:
 
     def _read_loop(self) -> None:
         while True:
+            if self._broken:  # nobody reads the answers: stop reading requests
+                self._log.info("stdout closed; ending the session")
+                return
             try:
                 line = self._stdin.readline(self._max_line + 1)
             except (OSError, ValueError) as exc:

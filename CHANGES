@@ -22,8 +22,8 @@ Unreleased
   deadlines).
 * DebPackage.read() takes an optional max_size: a larger member raises
   DebMemberTooLargeError (a DebSizeLimitError) before it is read, and
-  DebPackage.files() takes an optional max_entries (DebSizeLimitError when
-  the data archive has more entries).
+  DebPackage.files() takes an optional max_entries (DebEntryLimitError, a
+  DebSizeLimitError, when the data archive has more entries).
 * The Fetcher refuses link-local addresses (169.254.0.0/16, fe80::/10), the
   metadata service addresses fd00:ec2::254 and 100.100.100.200 and the cloud
   metadata host names metadata, metadata.google.internal and instance-data,
@@ -104,6 +104,9 @@ Unreleased
   setting (http_proxy/https_proxy)" instead of quoting it (with its
   password), and the errors and warnings for malformed sources files have
   URL credentials removed.
+* RepoClient records a problem (once) for a malformed checksum field of a
+  Sources stanza, which SourceRecord.files then ignores, instead of only
+  logging a warning.
 * RepoClient(max_index_bytes=...) bounds one decompressed index (default
   1 GiB, as before), and fetch_index() with verification refuses an index
   that Release lists as larger than the Fetcher's max_bytes before

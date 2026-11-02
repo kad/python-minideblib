@@ -35,6 +35,7 @@ from typing import TypeVar
 from minideblib.checksums import ChecksumError, verify_file
 from minideblib.compress import MissingCodecError
 from minideblib.deb import (
+    DebEntryLimitError,
     DebError,
     DebFile,
     DebMemberTooLargeError,
@@ -44,7 +45,7 @@ from minideblib.deb import (
 )
 from minideblib.dsc import Dsc, DscFile
 from minideblib.mcp.protocol import Tool, ToolCall, ToolError
-from minideblib.mcp.repos import _json_size, clean_text, clean_value, page
+from minideblib.mcp.repos import clean_text, clean_value, page
 from minideblib.mcp.startup import ServerConfig
 from minideblib.mcp.toolkit import (
     DEFAULT_LIMIT,
@@ -54,6 +55,7 @@ from minideblib.mcp.toolkit import (
     OFFSET,
     SHORT_LIMIT,
     int_arg,
+    json_size,
     opt_str,
     req_str,
     schema,
@@ -179,7 +181,7 @@ def _take(
     used = 0
     for item in items[:MAX_ITEMS]:
         rendered = render(item)
-        size = _json_size(rendered) + 1
+        size = json_size(rendered) + 1
         if out and used + size > max_bytes:
             break
         out.append(rendered)
@@ -247,6 +249,11 @@ class LocalTools:
     def _guard(self, fn: Callable[[], _T]) -> _T:
         try:
             return fn()
+        except DebEntryLimitError:
+            raise ToolError(
+                f"the data archive has more than {MAX_ENTRIES} entries; call again with "
+                "list_files false (control fields and read_file still work)"
+            ) from None
         except DebSizeLimitError:
             raise ToolError(
                 "the package exceeds a size limit (unpacked size or number of entries)"
@@ -344,7 +351,7 @@ class LocalTools:
                     item["md5sum"] = clean_text(digest, 64)
                 return item
 
-            room = max(1, self.budget - _json_size(out))
+            room = max(1, self.budget - json_size(out))
             out.update(page(files, offset, limit, room, render, "files"))
         return out
 
@@ -393,7 +400,7 @@ class LocalTools:
             )[0],
         }
         names = dsc.fields.fields_in_order()
-        rest = max(1, self.budget - _json_size(out))
+        rest = max(1, self.budget - json_size(out))
         out["fields_total"] = len(names)
         out["fields"] = _pairs(names, lambda k: dsc.fields[k], rest // 3)
 
@@ -404,7 +411,7 @@ class LocalTools:
                 "hashes": {k: clean_text(v, 200) for k, v in f.hashes().items()},
             }
 
-        room = max(1, self.budget - _json_size(out) - 100)
+        room = max(1, self.budget - json_size(out) - 100)
         shown, more = _take(dsc.files, render, room)
         out["files_total"] = len(dsc.files)
         out["files"] = shown

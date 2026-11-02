@@ -107,8 +107,20 @@ _RELATIONS = (
 _CONTENTS_RATIO = 8
 #: estimated parsed memory per byte of Contents text (as RepoClient's cache budget)
 _CONTENTS_PARSED = 4
-#: leading ``[scheme:]//userinfo@`` of a proxy setting (kept: the scheme and slashes)
-_PROXY_USERINFO = re.compile(r"^((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)?[^/?#\s]*@")
+#: leading ``[scheme:]//userinfo@`` of a proxy setting (kept: the scheme and slashes).
+#: Everything up to the last ``@`` goes: a password may hold ``/``, ``?``, ``#``,
+#: spaces or ``@`` unescaped, and over-redacting a setting is harmless.
+_PROXY_USERINFO = re.compile(r"^((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)?.*@", re.S)
+#: Debian architecture names whose CPU (as in ``dpkg-architecture -qDEB_HOST_ARCH_CPU``)
+#: differs from the name; every other name is its own CPU
+_ARCH_CPU = {
+    "armel": "arm",
+    "armhf": "arm",
+    "arm64ilp32": "arm64",
+    "x32": "amd64",
+    "powerpcspe": "powerpc",
+    "lpia": "i386",
+}
 #: the clock of the find_file time budget (replaceable in tests)
 _clock = time.monotonic
 _PROBES: dict[str, Probe] = {"debian": "debian", "ubuntu": "ubuntu", "all": "all"}
@@ -957,9 +969,14 @@ def contents_cost(rel: Release, component: str, arch: str) -> int:
 
 
 def _proxy_shown(scheme: str, value: str) -> str:
-    """A proxy setting without credentials (``no`` lists hosts and is kept)."""
-    shown = redact_url(value)
-    return shown if scheme == "no" else _PROXY_USERINFO.sub(r"\1", shown)
+    """A proxy setting without credentials (``no`` lists hosts and is kept).
+
+    The raw value is redacted (not :func:`redact_url` first, which stops a
+    password at ``/`` and would leave its tail behind).
+    """
+    if scheme == "no":
+        return redact_url(value)
+    return _PROXY_USERINFO.sub(r"\1", value, count=1)
 
 
 def _source_builds_for(rec: SourceRecord, wanted: Sequence[str] | None) -> bool:
@@ -967,7 +984,8 @@ def _source_builds_for(rec: SourceRecord, wanted: Sequence[str] | None) -> bool:
 
     ``any`` covers every concrete architecture, ``all`` only ``all``;
     ``<os>-any`` and ``any-<cpu>`` wildcards are matched by name (``linux``
-    architectures have no ``linux-`` prefix).
+    architectures have no ``linux-`` prefix); for ``any-<cpu>`` the
+    architecture's CPU comes from :data:`_ARCH_CPU` (``armhf`` is ``arm``).
     """
     if not wanted:
         return True
@@ -984,7 +1002,8 @@ def _source_builds_for(rec: SourceRecord, wanted: Sequence[str] | None) -> bool:
                     return True
             if token.startswith("any-"):
                 cpu = token[len("any-") :]
-                if want == cpu or want.endswith(f"-{cpu}"):
+                base = want.rpartition("-")[2]
+                if _ARCH_CPU.get(base, base) == cpu:
                     return True
     return False
 

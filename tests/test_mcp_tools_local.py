@@ -109,6 +109,18 @@ def test_registered_read_only_local() -> None:
 # -- inspect_deb ----------------------------------------------------------------
 
 
+def test_inspect_deb_entry_limit(deb_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools_local, "MAX_ENTRIES", 2)
+    with pytest.raises(ToolError) as info:
+        _call("inspect_deb", path=str(deb_path))
+    assert str(info.value) == (
+        "the data archive has more than 2 entries; call again with list_files false "
+        "(control fields and read_file still work)"
+    )
+    out = _call("inspect_deb", path=str(deb_path), list_files=False)
+    assert out["control"]
+
+
 def test_deb_control_and_files(deb_path: Path) -> None:
     out = _call("inspect_deb", path=str(deb_path))
     assert [k for k, _ in out["control"]][:3] == ["Package", "Version", "Architecture"]
@@ -677,4 +689,6 @@ def test_read_file_without_listing(deb_path: Path) -> None:
 
 def test_too_many_entries(deb_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tools_local, "MAX_ENTRIES", 2)
-    assert "size limit" in _err("inspect_deb", path=str(deb_path))
+    assert "more than 2 entries; call again with list_files false" in _err(
+        "inspect_deb", path=str(deb_path)
+    )

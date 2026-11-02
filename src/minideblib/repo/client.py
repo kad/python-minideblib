@@ -1206,11 +1206,25 @@ class RepoClient:
             else:
                 rec.file_urls  # noqa: B018 - validates Directory and file names
                 _safe_join(rec.base_url, rec.directory)
+                self._note_bad_hashes(rec)
         except ValueError as e:
             msg = f"{rec.suite}: skipping {rec.name} {rec.component}/{rec.arch}: {e}"
             self._problem_once((rec.base_url, rec.suite, msg), msg)
             return
         out.append(rec)
+
+    def _note_bad_hashes(self, rec: SourceRecord) -> None:
+        """A problem for each malformed checksum field of *rec* (which are then ignored)."""
+        for key, _ in _SOURCES_HASHES:
+            if key not in rec.paragraph:
+                continue
+            try:
+                parse_multiline_hashes(rec.paragraph[key])
+            except ChecksumError as e:
+                msg = (
+                    f"{rec.suite}: source {rec.name} {rec.component}: malformed {key} ignored: {e}"
+                )
+                self._problem_once((rec.base_url, rec.suite, msg), msg)
 
     def find_files(
         self,

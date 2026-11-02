@@ -69,11 +69,17 @@ def test_read_max_size(tmp_path):
         pkg.read("nope", max_size=10)
 
 
+def test_entry_limit_error_is_a_size_limit_error_and_exported():
+    assert issubclass(deb.DebEntryLimitError, deb.DebSizeLimitError)
+    assert "DebEntryLimitError" in deb.__all__
+    assert deb.__all__ == sorted(deb.__all__, key=lambda n: (not n[0].isupper(), n))
+
+
 def test_files_max_entries(tmp_path):
     pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, FILES)))
     total = len(pkg.files())
     assert len(pkg.files(max_entries=total)) == total
-    with pytest.raises(deb.DebSizeLimitError):
+    with pytest.raises(deb.DebEntryLimitError, match=f"more than {total - 1} entries"):
         pkg.files(max_entries=total - 1)
 
 
