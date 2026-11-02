@@ -18,6 +18,7 @@ import pytest
 
 from minideblib.mcp import tools_repo
 from minideblib.mcp.protocol import Tool, ToolCall, ToolError, validate
+from minideblib.mcp.repos import FIND_FILE_BUDGET
 from minideblib.mcp.startup import RepositorySpec, ServerConfig
 from minideblib.mcp.tools import RepoManager, build_tools, clean_text
 from minideblib.mcp.tools_repo import contents_cost
@@ -222,6 +223,43 @@ def test_fetcher_policy_from_config() -> None:
     f = RepoManager(config).fetcher
     assert f.allowed_hosts == frozenset({"deb.debian.org"})
     assert f.timeout == 7.0 and f.retries == 0
+
+
+def test_index_memory_limits() -> None:
+    manager = RepoManager(ServerConfig())
+    assert manager.fetcher.max_bytes == 256 * 1024**2
+    assert manager.max_index_bytes == 512 * 1024**2
+    assert manager.resolve("http://deb.example/debian").client.max_index_bytes == 512 * 1024**2
+    assert FIND_FILE_BUDGET == 1024**3
+    assert manager.find_file_budget_bytes == FIND_FILE_BUDGET
+
+
+def test_index_listed_over_the_download_limit_is_refused(tmp_path: Path) -> None:
+    noise = "".join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(400))
+    para = {"Package": "sample-big", "Version": "1", "Description": f"big\n {noise}"}
+    base = make_repo(tmp_path, SUITE, comps=["main"], arches=("amd64",), packages=[para])
+    limit = 4096
+    assert (tmp_path / "dists" / SUITE / "InRelease").stat().st_size < limit
+    config = ServerConfig(repositories=(RepositorySpec("repo1", base),))
+    manager = RepoManager(config, max_index_download_bytes=limit)
+    fetched: list[str] = []
+    real_get = manager.fetcher.get
+
+    def get(url: str, **kw: Any) -> bytes:
+        fetched.append(url)
+        return real_get(url, **kw)
+
+    manager.fetcher.get = get  # ty: ignore[invalid-assignment]  # recording wrapper
+    with pytest.raises(ToolError, match=r"is listed at \d+ bytes, over the limit of 4096 bytes"):
+        _call(_tools(manager=manager)["search_packages"], suite=SUITE, pattern="sample")
+    assert fetched and all("Packages" not in url for url in fetched)  # only Release was read
+
+
+def test_index_decompressed_over_the_limit_is_refused(base: str) -> None:
+    config = ServerConfig(repositories=(RepositorySpec("repo1", base),))
+    manager = RepoManager(config, max_index_bytes=16)
+    with pytest.raises(ToolError, match="exceeds 16 bytes"):
+        _call(_tools(manager=manager)["search_packages"], suite=SUITE, pattern="sample")
 
 
 def test_client_reuse_lru(tmp_path: Path) -> None:

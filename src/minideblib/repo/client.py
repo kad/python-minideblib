@@ -35,6 +35,7 @@ from minideblib.checksums import (
     is_weak,
     parse_multiline_hashes,
 )
+from minideblib.compress import DEFAULT_MAX_SIZE
 from minideblib.control import ControlError, Paragraph
 from minideblib.dsc import Dsc
 from minideblib.errors import MinidebError
@@ -452,6 +453,10 @@ class RepoClient:
       exceeds the budget the least recently used parsed indices are
       dropped (never the one just loaded, so a single index larger than
       the budget is still kept) and downloaded again when needed.
+    - *max_index_bytes* (default 1 GiB) bounds one decompressed index; the
+      Fetcher's ``max_bytes`` bounds the downloaded (compressed) file, and
+      with *verify* an index listed in Release as larger is refused before
+      it is requested.
     - ``Architecture: all`` packages appear once per architecture index
       they are listed in, tagged with that index's architecture. In flat
       repositories (one ``Packages`` file) records are tagged with their
@@ -475,6 +480,7 @@ class RepoClient:
         architectures: Iterable[str] = (),
         *,
         cache_budget_bytes: int = DEFAULT_CACHE_BUDGET,
+        max_index_bytes: int = DEFAULT_MAX_SIZE,
     ) -> None:
         self.entries = [e for e in (sources or []) if e.enabled]
         self.fetcher = fetcher or Fetcher()
@@ -488,6 +494,8 @@ class RepoClient:
         self._problems_total = 0
         #: estimated memory budget of the parsed indices (see the class notes)
         self.cache_budget_bytes = cache_budget_bytes
+        #: largest decompressed index accepted (``DecompressionLimitError`` beyond)
+        self.max_index_bytes = max_index_bytes
         #: base URL for suites not in ``entries`` (set by :meth:`from_url`)
         self._url: str | None = None
         self._explicit: tuple[str, ...] = ()
@@ -1067,7 +1075,14 @@ class RepoClient:
                 # downloaded and parsed without the lock (another thread may
                 # load the same index meanwhile: the last one stored wins)
                 try:
-                    data = fetch_index(self.fetcher, entry.uri, rel, cand, verify=self.verify)
+                    data = fetch_index(
+                        self.fetcher,
+                        entry.uri,
+                        rel,
+                        cand,
+                        verify=self.verify,
+                        max_size=self.max_index_bytes,
+                    )
                 except FetchError as e:
                     if not is_not_found(e):
                         raise

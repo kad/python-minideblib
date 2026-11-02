@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Alexander D. Kanevskiy <kad@bifh.org>
 
 import http.server
+import logging
 import threading
 from typing import Any
 
@@ -151,6 +152,20 @@ def server(tmp_path, monkeypatch):
     RELEASE.set()
     srv.shutdown()
     srv.server_close()
+
+
+def test_malformed_proxy_setting_never_shows_its_credentials(server, monkeypatch, caplog):
+    base, _ = server
+    monkeypatch.setenv("http_proxy", "http:/user:s3cret@proxy.invalid:3128")
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    with caplog.at_level(logging.DEBUG), pytest.raises(FetchError) as ei:
+        _fetcher().get(base + "/hello.txt")
+    assert "invalid proxy setting (http_proxy/https_proxy)" in str(ei.value)
+    assert "s3cret" not in str(ei.value)
+    assert "s3cret" not in caplog.text
+    assert "user" not in str(ei.value).replace(base, "")
+    assert ei.value.__cause__ is None and ei.value.__suppress_context__
 
 
 def test_get_ok(server):

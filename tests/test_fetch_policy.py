@@ -592,6 +592,22 @@ def test_allowed_hosts_bad_entries_rejected(entry):
         Fetcher(allowed_hosts=[entry])
 
 
+@pytest.mark.parametrize(
+    "entry", ["a b", "*", "-x.org", "x-.org", "a\tb", "*.-x.org", "a..b", "a_b-", "*.*.x"]
+)
+def test_allowed_hosts_invalid_host_names_rejected(entry):
+    with pytest.raises(ValueError, match="(not a valid|invalid) host name"):
+        Fetcher(allowed_hosts=[entry])
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["*.example.org", "[::1]", "10.0.0.1", "b\u00fccher.example", "a_b.example", "x1-y.org."],
+)
+def test_allowed_hosts_valid_host_names_accepted(entry):
+    Fetcher(allowed_hosts=[entry])
+
+
 def test_allowed_hosts_ipv6_literals_accepted():
     f, rec = _recording(allowed_hosts=["::1", "[fd00::1]"])
     for url in ("http://[::1]/x", "http://[fd00::1]/x"):

@@ -207,6 +207,13 @@ def test_max_response_bytes_minimum(spawn: Spawner) -> None:
     _one_error_line(err, "--max-response-bytes: must be at least 4096")
 
 
+def test_url_outside_the_allowlist_is_a_startup_error(spawn: Spawner) -> None:
+    child = spawn("--url", "http://b.example.org/debian", "mcp", "--allow-host", "a.example")
+    code, err, out = _finished(child)
+    assert (code, out) == (2, b"")
+    _one_error_line(err, "--url: host 'b.example.org' is not allowed by --allow-host")
+
+
 def test_bad_url_is_a_startup_error(spawn: Spawner) -> None:
     child = spawn("--url", "ftp://deb.debian.org/debian", "mcp")
     code, err, out = _finished(child)

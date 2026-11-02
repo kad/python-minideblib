@@ -40,7 +40,10 @@ Unreleased
   is sent.
 * Fetcher(allowed_hosts=...) restricts http(s) requests and redirects to the
   given hosts (exact names or *.suffix wildcards; file: URLs are not
-  affected). A bare string, or an entry with a path or a port, is rejected.
+  affected). A bare string, an entry with a path or a port, and an entry that
+  is neither an IP address nor a host name of letters, digits, "-" and "_"
+  labels (after an optional "*.") are rejected. minideb mcp refuses to start
+  when a --url or --sources repository is outside --allow-host.
 * Fetcher.check_host(url) applies the host policy to a URL without making a
   request (HostNotAllowed when refused), and minideblib.repo.release gains
   is_not_found(err): whether a FetchError means HTTP 404 or a missing
@@ -97,6 +100,16 @@ Unreleased
   one-line sources.list files and changelogs (form feeds, U+2028 and other
   separators no longer end a line there). RepoClient records a malformed
   index as a problem and goes on without it instead of raising ControlError.
+* A malformed http_proxy/https_proxy setting is reported as "invalid proxy
+  setting (http_proxy/https_proxy)" instead of quoting it (with its
+  password), and the errors and warnings for malformed sources files have
+  URL credentials removed.
+* RepoClient(max_index_bytes=...) bounds one decompressed index (default
+  1 GiB, as before), and fetch_index() with verification refuses an index
+  that Release lists as larger than the Fetcher's max_bytes before
+  requesting it. minideb mcp downloads at most 256 MiB per index and
+  accepts at most 512 MiB decompressed; one find_file call reads at most
+  an estimated 1 GiB of parsed Contents.
 
 minideblib 0.7.0 (2026-11-01)
 =============================

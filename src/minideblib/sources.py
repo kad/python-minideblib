@@ -204,7 +204,7 @@ def _load_file(path: Path) -> list[SourceEntry]:
             return parse_deb822(text)
         return parse_sources_list(text)
     except ValueError as e:
-        raise SourcesError(f"{path}: {e}") from e
+        raise SourcesError(f"{path}: {redact_url(str(e))}") from e
 
 
 def _load_dir(path: Path) -> list[SourceEntry]:
@@ -217,9 +217,9 @@ def _load_dir(path: Path) -> list[SourceEntry]:
         try:
             out += _load_file(p)
         except OSError as exc:
-            log.warning("skipping unreadable sources file %s: %s", p.name, exc)
+            log.warning("skipping unreadable sources file %s: %s", p.name, redact_url(str(exc)))
         except SourcesError as exc:  # message names the file
-            log.warning("skipping malformed sources file: %s", exc)
+            log.warning("skipping malformed sources file: %s", redact_url(str(exc)))
     return out
 
 
