@@ -28,6 +28,38 @@ Unreleased
   FetchCancelled, an expired deadline the new FetchTimeout. get() and
   exists() gained keyword-only parameters: subclasses that override them
   should accept them (for example with **kw) and pass them on.
+* Fetcher.download(url, out, max_bytes=..., expected_size=, expected_hashes=,
+  token=, deadline=) streams a body into a binary file object in chunks,
+  hashing it on the way (a failed write raises FetchError; out is not
+  flushed or closed), and returns a DownloadResult (size and hex
+  digests: every requested algorithm plus sha256). Nothing is written
+  before the status and headers are checked; max_bytes is enforced through
+  Content-Length and while streaming; a size or digest mismatch raises
+  HashMismatch (after writing: the caller discards the output). Retries
+  happen only before the first byte is written. Token, deadline, scope,
+  cancel() and the host policy apply as for get(); file: URLs work too.
+* Fetcher refuses file: URLs that do not name a regular file (a FIFO or
+  device could block beyond any deadline); symlinks are followed.
+* RepoClient.plan_binary() and RepoClient.plan_source() resolve a binary or
+  source package to a DownloadPlan of FileSpec items (name, URL, size and
+  the strongest listed hash) without downloading anything but indices: one
+  plan per architecture for architecture-specific packages, one plan for an
+  Architecture: all package listed in several per-arch indices (included
+  for any architecture filter; binary-all is read where Release offers
+  it), the newest version per target architecture, the .dsc first for
+  sources. RepoClient.group_packages() groups records into
+  PackageGroup items (one per suite, name, version and component, with
+  their architectures, Multi-Arch and per-architecture variants).
+* RepoClient.search() gained keyword-only components=, architectures= and
+  kind= ("binary" or "source", which returns SourceRecord items) filters;
+  the old call form is unchanged.
+* RepoClient.problems keeps the newest 1000 messages (problems_dropped
+  counts the others); problems_mark() and problems_since(mark) give the
+  messages one call added (problems is read-only for callers). The caches
+  and the problem list are safe to use from several threads. RepoClient(cache_budget_bytes=...) (default 512
+  MiB) bounds the cached parsed indices by an estimate (8 times their
+  decompressed size, 4 for Contents), dropping the least recently used ones; they are
+  downloaded again when needed.
 
 minideblib 0.7.0 (2026-11-01)
 =============================

@@ -16,6 +16,7 @@ component also gets DEP-11 metadata (``dep11/Components-<arch>.yml.gz`` and
 
 from __future__ import annotations
 
+import functools
 import gzip
 import hashlib
 import io
@@ -24,6 +25,8 @@ import posixpath
 import tarfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+
+from tests.fixtures.debs import make_deb
 
 ALGOS = ("MD5Sum", "SHA1", "SHA256", "SHA512")
 _HASHLIB = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
@@ -53,6 +56,62 @@ def default_packages(arch: str) -> list[dict[str, str]]:
             "Description": "sample package",
         }
     ]
+
+
+#: ``(package, version, "any" or "all", Multi-Arch)`` of :func:`multiarch_packages`
+MULTIARCH_SET: tuple[tuple[str, str, str, str], ...] = (
+    ("sample-tool", "1.0-1", "any", "foreign"),
+    ("sample-tool", "1.1-1", "any", "foreign"),
+    ("libsample1", "1.1-1", "any", "same"),
+    ("sample-data", "1.1-1", "all", "foreign"),
+)
+#: extra payload bytes per architecture, so that sizes and hashes differ
+_ARCH_PAD = {"amd64": 10, "arm64": 333, "i386": 77, "all": 0}
+
+
+@functools.cache
+def multiarch_deb(name: str, version: str, arch: str) -> bytes:
+    """A real ``.deb`` (xz members, so the bytes are deterministic)."""
+    control = {
+        "Package": name,
+        "Version": version,
+        "Architecture": arch,
+        "Maintainer": "Test <test@example.com>",
+        "Description": f"{name} for {arch}",
+    }
+    payload = f"{name} {version} {arch}\n".encode() + b"#" * _ARCH_PAD.get(arch, 1)
+    return make_deb(control, {f"usr/share/{name}/{arch}.txt": payload}, "xz", "xz")
+
+
+def multiarch_packages(arch: str, comp: str) -> tuple[list[dict[str, str]], dict[str, bytes]]:
+    """``Packages`` paragraphs of the *arch* index and the pool files they name.
+
+    Arch-specific packages get one ``.deb`` per architecture (differing size
+    and hashes); the ``Architecture: all`` package is the same file in every
+    index. Size, SHA256 and SHA512 are those of the pool file.
+    """
+    paras: list[dict[str, str]] = []
+    pool: dict[str, bytes] = {}
+    for name, version, kind, multi in MULTIARCH_SET:
+        a = "all" if kind == "all" else arch
+        path = f"pool/{comp}/{name[0]}/{name}/{name}_{version}_{a}.deb"
+        data = multiarch_deb(name, version, a)
+        pool[path] = data
+        paras.append(
+            {
+                "Package": name,
+                "Version": version,
+                "Architecture": a,
+                "Multi-Arch": multi,
+                "Maintainer": "Test <test@example.com>",
+                "Filename": path,
+                "Size": str(len(data)),
+                "SHA256": _hex("sha256", data),
+                "SHA512": _hex("sha512", data),
+                "Description": f"{name} for {a}",
+            }
+        )
+    return paras, pool
 
 
 def render(paragraphs: Paragraphs, arch: str | None = None) -> bytes:
@@ -241,6 +300,8 @@ def make_repo(
     release: bool = True,
     dep11: bool | str | bytes = False,
     dsc: bool = False,
+    multiarch: bool = False,
+    packages_by_arch: Mapping[str, Paragraphs] | None = None,
 ) -> str:
     """Write a repository under *root* and return its ``file://`` base URL.
 
@@ -256,6 +317,11 @@ def make_repo(
     With ``dsc`` a ``sample-pkg`` source stanza is appended to ``Sources`` and the
     files of :func:`sample_source_files` are written under ``pool/<comp>/s/sample-pkg``
     (flat: ``pool/s/sample-pkg`` next to the indices).
+    With ``multiarch`` (and no ``packages``) every per-architecture index lists
+    :func:`multiarch_packages` and their real ``.deb`` files are written to the pool
+    (not supported with ``flat``). ``packages_by_arch`` gives each per-architecture
+    index its own paragraphs (missing architectures: an empty index); it wins over
+    ``packages`` and ``multiarch``.
     """
     root = Path(root)
     comps = list(comps)
@@ -298,6 +364,11 @@ def make_repo(
         for comp in comps:
             for arch in arches:
                 pkgs = packages if packages is not None else default_packages(arch)
+                if multiarch and packages is None:
+                    pkgs, debs = multiarch_packages(arch, comp)
+                    pool_files.update(debs)
+                if packages_by_arch is not None:
+                    pkgs = packages_by_arch.get(arch)
                 add_index(f"{comp}/binary-{arch}/Packages", render(pkgs, arch))
                 if contents is not False:
                     body = contents if not isinstance(contents, bool) else _contents(arch)

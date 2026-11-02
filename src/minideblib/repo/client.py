@@ -21,10 +21,10 @@ import os
 import posixpath
 import queue
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Literal, overload
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
@@ -67,6 +67,9 @@ __all__ = [
     "DEBIAN_SUITES",
     "MAX_PROBE_REQUESTS",
     "UBUNTU_SUITES",
+    "DownloadPlan",
+    "FileSpec",
+    "PackageGroup",
     "PackageRecord",
     "Probe",
     "RepoClient",
@@ -128,6 +131,26 @@ _ABSENT_STATUS = (401, 403, 404, 410)
 
 _UPDATES_PREFIX = "updates/"
 
+#: Newest entries kept in :attr:`RepoClient.problems`.
+MAX_PROBLEMS = 1000
+
+#: Default of the ``cache_budget_bytes`` argument of :class:`RepoClient`.
+DEFAULT_CACHE_BUDGET = 512 * 1024**2
+
+#: Estimated memory of a parsed index per byte of its decompressed text, by
+#: kind. Measured: a parsed 100k-stanza Packages index retains about 7.35
+#: times its text in RSS (tracemalloc: 6.6 retained, 8.9 at the peak), a
+#: Contents dict about 3.8; Sources and DEP-11 are taken as Packages.
+_PARSED_COST_FACTOR: dict[str, int] = {"binary": 8, "source": 8, "dep11": 8, "contents": 4}
+
+#: ``Packages`` hash fields, strongest first, with their hashlib names.
+_PACKAGES_HASHES = (
+    ("SHA512", "sha512", 128),
+    ("SHA256", "sha256", 64),
+    ("SHA1", "sha1", 40),
+    ("MD5sum", "md5", 32),
+)
+
 
 class RepoError(MinidebError, ValueError):
     """Repository data the client cannot use, or a suite it does not know.
@@ -170,6 +193,72 @@ def _int_or_none(value: str | None) -> int | None:
         return int(value) if value is not None else None
     except ValueError:
         return None
+
+
+def _size_or_none(value: str | int | None) -> int | None:
+    """A non-negative size, else None."""
+    n = _int_or_none(value) if isinstance(value, str) or value is None else value
+    return n if n is not None and n >= 0 else None
+
+
+def _is_hex(text: str, length: int) -> bool:
+    return len(text) == length and all(c in "0123456789abcdef" for c in text)
+
+
+@dataclass(frozen=True)
+class FileSpec:
+    """One file to download: its name, URL, size and hashes from the repository metadata.
+
+    *name* is the basename taken from ``Filename`` or the ``Sources`` file
+    list; *hashes* maps the hashlib name of the strongest algorithm listed
+    for the file to its lowercase hex digest (empty when none is listed;
+    possibly a weak one only, which callers requiring SHA256 or stronger
+    must refuse). *size* is None when not listed.
+    """
+
+    name: str
+    url: str
+    size: int | None
+    hashes: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class DownloadPlan:
+    """The files of one binary package (one ``.deb``) or of one source package.
+
+    *architecture* is the ``Architecture`` of the binary package (``all``
+    for architecture-independent ones) and None for sources. Source plans
+    list the ``.dsc`` first.
+    """
+
+    kind: Literal["binary", "source"]
+    name: str
+    version: str
+    suite: str
+    component: str
+    architecture: str | None
+    files: tuple[FileSpec, ...]
+
+
+@dataclass(frozen=True)
+class PackageGroup:
+    """The records of one package version in one suite and component, over architectures.
+
+    *architectures* are the distinct ``Architecture`` values of the
+    variants, sorted (``("all",)`` for an architecture-independent
+    package); *variants* holds one record per distinct file (an
+    ``Architecture: all`` record listed identically in several per-arch
+    indices appears once), sorted by index architecture. *multi_arch* is
+    the ``Multi-Arch`` field of the first variant that has one.
+    """
+
+    name: str
+    version: str
+    component: str
+    suite: str
+    architectures: tuple[str, ...]
+    multi_arch: str | None
+    variants: tuple[PackageRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -228,6 +317,20 @@ class PackageRecord:
         """First line of ``Description``."""
         return _short_description(self.paragraph)
 
+    @property
+    def architecture(self) -> str:
+        """The ``Architecture`` field (``all`` included), else the index architecture."""
+        return self.paragraph.get("Architecture", "") or self.arch
+
+    @property
+    def strongest_hash(self) -> dict[str, str]:
+        """``{hashlib name: lowercase hex}`` of the strongest well-formed hash field, or ``{}``."""
+        for key, algo, length in _PACKAGES_HASHES:
+            digest = self.paragraph.get(key, "").strip().lower()
+            if _is_hex(digest, length):
+                return {algo: digest}
+        return {}
+
 
 @dataclass(frozen=True)
 class SourceRecord:
@@ -272,8 +375,12 @@ class SourceRecord:
         malformed field is skipped with a warning. This is a listing only: a
         file listed with a weak hash only still fails verification.
         """
-        merged: dict[str, HashEntry] = {}
-        for key, _ in _SOURCES_HASHES:
+        return [row for _, row in self._listed().values()]
+
+    def _listed(self) -> dict[str, tuple[str, HashEntry]]:
+        """File name -> ``(hashlib name, row)`` from the strongest field listing it."""
+        merged: dict[str, tuple[str, HashEntry]] = {}
+        for key, algo in _SOURCES_HASHES:
             if key not in self.paragraph:
                 continue
             try:
@@ -282,8 +389,8 @@ class SourceRecord:
                 log.warning("malformed %s in source %s", key, self.name)
                 continue
             for row in rows:
-                merged.setdefault(row.name, row)
-        return list(merged.values())
+                merged.setdefault(row.name, (algo, row))
+        return merged
 
     @property
     def file_urls(self) -> list[str]:
@@ -327,11 +434,24 @@ class RepoClient:
     queried through every such entry. Records with unsafe paths are
     skipped with a problem.
 
+    :attr:`problems` (read-only for callers) keeps the newest
+    :data:`MAX_PROBLEMS` messages;
+    :attr:`problems_dropped` counts the older ones dropped, and
+    :meth:`problems_mark`/:meth:`problems_since` give the messages added
+    by one call.
+
     Notes:
 
+    - The caches and :attr:`problems` are guarded by a lock, so a client
+      may be shared between threads (indices are downloaded outside it).
     - Whole parsed indices (and Release files, including "not found"
       results) are cached for the lifetime of the client; call
-      :meth:`clear_cache` to refetch.
+      :meth:`clear_cache` to refetch. Parsed indices are bounded by
+      *cache_budget_bytes* (default 512 MiB): their memory is estimated as
+      8 times the decompressed index size (4 for Contents), and when the estimate
+      exceeds the budget the least recently used parsed indices are
+      dropped (never the one just loaded, so a single index larger than
+      the budget is still kept) and downloaded again when needed.
     - ``Architecture: all`` packages appear once per architecture index
       they are listed in, tagged with that index's architecture. In flat
       repositories (one ``Packages`` file) records are tagged with their
@@ -353,6 +473,8 @@ class RepoClient:
         verify: bool = True,
         components: Iterable[str] = (),
         architectures: Iterable[str] = (),
+        *,
+        cache_budget_bytes: int = DEFAULT_CACHE_BUDGET,
     ) -> None:
         self.entries = [e for e in (sources or []) if e.enabled]
         self.fetcher = fetcher or Fetcher()
@@ -361,6 +483,11 @@ class RepoClient:
         self.scope_components: tuple[str, ...] = tuple(dict.fromkeys(components))
         self.scope_architectures: tuple[str, ...] = tuple(dict.fromkeys(architectures))
         self.problems: list[str] = []
+        #: messages dropped from the front of :attr:`problems` (see MAX_PROBLEMS)
+        self.problems_dropped = 0
+        self._problems_total = 0
+        #: estimated memory budget of the parsed indices (see the class notes)
+        self.cache_budget_bytes = cache_budget_bytes
         #: base URL for suites not in ``entries`` (set by :meth:`from_url`)
         self._url: str | None = None
         self._explicit: tuple[str, ...] = ()
@@ -372,6 +499,10 @@ class RepoClient:
         self._noted_scope: set[tuple[str, str, str]] = set()
         self._indices: dict[tuple[str, str, str, str, str], tuple[str, Any] | None] = {}
         self._parsed: dict[tuple[str, str, str], Any] = {}
+        # estimated cost of each parsed index, in least recently used order
+        self._cost: dict[tuple[str, str, str], int] = {}
+        # guards the caches and the problem list against concurrent use
+        self._lock = threading.RLock()
 
     @classmethod
     def from_url(
@@ -411,17 +542,78 @@ class RepoClient:
 
     def clear_cache(self) -> None:
         """Forget downloaded Release/index data and probed suites."""
-        self._releases.clear()
-        self._indices.clear()
-        self._parsed.clear()
-        self._noted.clear()
-        self._noted_missing.clear()
-        self._noted_scope.clear()
-        self._suites = None
+        with self._lock:
+            self._releases.clear()
+            self._indices.clear()
+            self._parsed.clear()
+            self._cost.clear()
+            self._noted.clear()
+            self._noted_missing.clear()
+            self._noted_scope.clear()
+            self._suites = None
 
     def _problem(self, msg: str) -> None:
         log.warning("%s", msg, extra={"problem": True})
-        self.problems.append(msg)
+        with self._lock:
+            self.problems.append(msg)
+            self._problems_total += 1
+            excess = len(self.problems) - MAX_PROBLEMS
+            if excess > 0:
+                del self.problems[:excess]
+                self.problems_dropped += excess
+
+    def _problem_once(self, key: tuple[str, str, str], msg: str) -> None:
+        """:meth:`_problem` unless *key* was noted already (until :meth:`clear_cache`)."""
+        with self._lock:
+            if key in self._noted_scope:
+                return
+            self._noted_scope.add(key)
+            self._problem(msg)
+
+    def problems_mark(self) -> int:
+        """A mark for :meth:`problems_since`: the number of problems recorded so far."""
+        with self._lock:
+            return self._problems_total
+
+    def problems_since(self, mark: int) -> list[str]:
+        """The problems recorded after *mark* (from :meth:`problems_mark`) still kept."""
+        with self._lock:
+            first_kept = self._problems_total - len(self.problems)
+            return self.problems[max(0, mark - first_kept) :]
+
+    @property
+    def cache_bytes(self) -> int:
+        """Estimated memory of the cached parsed indices (see the class notes)."""
+        with self._lock:
+            return sum(self._cost.values())
+
+    def _touch(self, pkey: tuple[str, str, str]) -> None:
+        """Mark a parsed index as most recently used (the caller holds :attr:`_lock`)."""
+        if pkey in self._cost:
+            self._cost[pkey] = self._cost.pop(pkey)
+
+    def _store_parsed(
+        self, pkey: tuple[str, str, str], parsed: Any, size: int, kind: IndexKind
+    ) -> None:
+        """Cache *parsed* (from *size* decompressed bytes), then evict over budget.
+
+        The caller holds :attr:`_lock`.
+        """
+        self._parsed[pkey] = parsed
+        self._cost.pop(pkey, None)
+        self._cost[pkey] = size * _PARSED_COST_FACTOR.get(kind, 8)
+        total = sum(self._cost.values())
+        for old in list(self._cost):
+            if total <= self.cache_budget_bytes:
+                break
+            if old == pkey:
+                continue
+            total -= self._cost.pop(old)
+            del self._parsed[old]
+            # query results pointing at the dropped data are forgotten too
+            for key in [k for k, v in self._indices.items() if v and (*k[:2], v[0]) == old]:
+                del self._indices[key]
+            log.debug("cache budget: dropped parsed %s", old[2])
 
     def _entries(self, suite: str, types: tuple[str, ...] = ("deb",)) -> list[SourceEntry]:
         """Entries for *suite*, preferring *types*; one per URI.
@@ -837,9 +1029,13 @@ class RepoClient:
         with *unlisted_ok* an index not listed in Release is no problem.
         """
         key = (entry.uri, entry.suite, comp, arch, kind)
-        if key in self._indices:
-            log.debug("index cache hit: %s %s", entry.suite, _describe(comp, arch, kind))
-            return self._indices[key]
+        with self._lock:
+            if key in self._indices:
+                log.debug("index cache hit: %s %s", entry.suite, _describe(comp, arch, kind))
+                hit = self._indices[key]
+                if hit is not None:
+                    self._touch((entry.uri, entry.suite, hit[0]))
+                return hit
         result = None
         candidates = _select(rel, comp, arch, kind)
         what = _describe(comp, arch, kind)
@@ -861,10 +1057,15 @@ class RepoClient:
         else:
             for cand in candidates:
                 pkey = (entry.uri, entry.suite, cand.path)
-                if pkey in self._parsed:  # e.g. top-level Contents shared by components
-                    log.debug("parsed cache hit: %s", cand.path)
-                    result = (cand.path, self._parsed[pkey])
-                    break
+                with self._lock:
+                    if pkey in self._parsed:  # e.g. top-level Contents shared by components
+                        log.debug("parsed cache hit: %s", cand.path)
+                        self._touch(pkey)
+                        result = (cand.path, self._parsed[pkey])
+                        self._indices[key] = result
+                        return result
+                # downloaded and parsed without the lock (another thread may
+                # load the same index meanwhile: the last one stored wins)
                 try:
                     data = fetch_index(self.fetcher, entry.uri, rel, cand, verify=self.verify)
                 except FetchError as e:
@@ -872,13 +1073,17 @@ class RepoClient:
                         raise
                     log.debug("%s missing, trying next candidate", redact_url(e.url))
                     continue
-                self._parsed[pkey] = _parse(kind, data)
-                log.debug("parsed %s: %d entries", cand.path, _count(self._parsed[pkey]))
-                result = (cand.path, self._parsed[pkey])
-                break
+                parsed = _parse(kind, data)
+                log.debug("parsed %s: %d entries", cand.path, _count(parsed))
+                result = (cand.path, parsed)
+                with self._lock:
+                    self._store_parsed(pkey, parsed, len(data), kind)
+                    self._indices[key] = result
+                return result
             else:
                 self._problem(f"{entry.suite}: {what} missing on server at {redact_url(entry.uri)}")
-        self._indices[key] = result
+        with self._lock:
+            self._indices[key] = result
         return result
 
     # -- queries -----------------------------------------------------------
@@ -932,10 +1137,16 @@ class RepoClient:
         Download cost: one ``Sources`` index per component queried (the
         client's component scope applies).
         """
+        return self._sources(suite, component)
+
+    def _sources(
+        self, suite: str, component: str | None, comps: Sequence[str] | None = None
+    ) -> list[SourceRecord]:
         out: list[SourceRecord] = []
         for entry, rel in self._releases_for(suite, ("deb-src",)):
             base = _dists(entry) if entry.flat else entry.uri
-            for comp, display, _ in self._scoped(entry, rel, component, None, with_arches=False):
+            scoped = self._scoped(entry, rel, component, None, comps, with_arches=False)
+            for comp, display, _ in scoped:
                 found = self._index(entry, rel, comp, "source", "source")
                 for para in found[1] if found else []:
                     self._keep(out, SourceRecord(para, suite, display, base_url=base))
@@ -970,7 +1181,8 @@ class RepoClient:
                 rec.file_urls  # noqa: B018 - validates Directory and file names
                 _safe_join(rec.base_url, rec.directory)
         except ValueError as e:
-            self._problem(f"{rec.suite}: skipping {rec.name} {rec.component}/{rec.arch}: {e}")
+            msg = f"{rec.suite}: skipping {rec.name} {rec.component}/{rec.arch}: {e}"
+            self._problem_once((rec.base_url, rec.suite, msg), msg)
             return
         out.append(rec)
 
@@ -1017,19 +1229,249 @@ class RepoClient:
                             out += [(p, loc) for loc in locations]
         return list(dict.fromkeys(out))
 
-    def search(self, suite: str, pattern: str) -> list[PackageRecord]:
+    @overload
+    def search(
+        self,
+        suite: str,
+        pattern: str,
+        *,
+        components: Sequence[str] | None = ...,
+        architectures: Sequence[str] | None = ...,
+        kind: Literal["binary"] = ...,
+    ) -> list[PackageRecord]: ...
+
+    @overload
+    def search(
+        self,
+        suite: str,
+        pattern: str,
+        *,
+        components: Sequence[str] | None = ...,
+        architectures: Sequence[str] | None = ...,
+        kind: Literal["source"],
+    ) -> list[SourceRecord]: ...
+
+    def search(
+        self,
+        suite: str,
+        pattern: str,
+        *,
+        components: Sequence[str] | None = None,
+        architectures: Sequence[str] | None = None,
+        kind: Literal["binary", "source"] = "binary",
+    ) -> list[PackageRecord] | list[SourceRecord]:
         """Packages of *suite* matching *pattern*, case-insensitively.
 
         A pattern containing ``*`` or ``?`` is a glob matched against the
         package name only; otherwise it is a substring of the name or of
         the short (first-line) description. Downloads what
         :meth:`packages` does for the whole suite (the client scope applies).
+
+        *components* narrows the components read (default: the client
+        scope; empty: everything). For binary packages *architectures*
+        narrows the indices read and keeps the records of those index
+        architectures plus ``Architecture: all`` packages; ``["all"]``
+        alone keeps only ``Architecture: all`` packages.
+        ``kind="source"`` searches ``Sources`` instead and returns
+        :class:`SourceRecord` items (a substring also matches a name in
+        ``Binary``; *architectures* is ignored). ``ValueError`` for another
+        *kind*.
         """
         pat = pattern.lower()
-        recs = self.packages(suite)
-        if "*" in pat or "?" in pat:
+        glob = "*" in pat or "?" in pat
+        if kind == "source":
+            srcs = self._sources(suite, None, components)
+            if glob:
+                return [r for r in srcs if fnmatch.fnmatchcase(r.name.lower(), pat)]
+            return [
+                r
+                for r in srcs
+                if pat in r.name.lower() or any(pat in b.lower() for b in r.binaries)
+            ]
+        if kind != "binary":
+            raise ValueError(f"unknown kind {kind!r}; use 'binary' or 'source'")
+        recs = self._packages(
+            suite, None, None, components, self._index_arches(suite, architectures)
+        )
+        if architectures:
+            wanted = set(architectures)
+            if wanted == {"all"}:
+                recs = [r for r in recs if r.architecture == "all"]
+            else:
+                recs = [
+                    r
+                    for r in recs
+                    if r.arch in wanted or r.architecture in wanted or r.architecture == "all"
+                ]
+        if glob:
             return [r for r in recs if fnmatch.fnmatchcase(r.name.lower(), pat)]
         return [r for r in recs if pat in r.name.lower() or pat in r.description.lower()]
+
+    # -- download plans and grouping ----------------------------------------
+
+    def _index_arches(self, suite: str, architectures: Sequence[str] | None) -> list[str] | None:
+        """Index architectures to read for an architecture filter.
+
+        None means the client scope and an empty list everything, as for
+        the *architectures* of :meth:`versions`. ``Architecture: all``
+        packages are listed in the per-arch indices and, where Release
+        lists ``all`` (without ``No-Support-for-Architecture-all:
+        Packages``), in ``binary-all``: that index is added to concrete
+        architectures, and ``["all"]`` alone reads it plus one concrete
+        architecture (not every one). Reads Release only.
+        """
+        if not architectures:
+            return None if architectures is None else []
+        concrete = [a for a in architectures if a != "all"]
+        releases = self._releases_for(suite)
+        extra = ["all"] if any(_supports_binary_all(rel) for _, rel in releases) else []
+        if concrete:
+            return concrete + extra
+        for entry, rel in releases:
+            first = next((a for a in self._arches(entry, rel, None) if a != "all"), None)
+            if first is not None:
+                return extra + [first]
+        return None
+
+    def plan_binary(
+        self,
+        suite: str,
+        name: str,
+        *,
+        version: str | None = None,
+        architectures: Sequence[str] | None = None,
+        components: Sequence[str] | None = None,
+    ) -> list[DownloadPlan]:
+        """Download plans for binary package *name* of *suite*, one per distinct file.
+
+        Architecture-specific packages give one plan per architecture; an
+        ``Architecture: all`` package listed in several per-arch indices
+        gives one plan (architecture ``all``). *architectures* keeps
+        packages of the listed architectures plus ``Architecture: all``
+        ones (installable everywhere, reported as ``all``); ``["all"]``
+        alone keeps only the latter; empty or None: no filter. *components*
+        as for :meth:`search`.
+
+        Without *version* the highest version (Debian ordering) is chosen
+        for every target architecture (each concrete architecture asked
+        for, else each seen) among its own and the ``all`` records, so a
+        package that moved to or from ``Architecture: all`` gives only the
+        current file per architecture; with *version*, records of an equal
+        version.
+        Records with an unsafe or missing ``Filename`` are skipped with a
+        problem. Sorted by architecture, then component. Only indices are
+        downloaded (through the cache); ``[]`` when nothing matches.
+        """
+        index_arches = self._index_arches(suite, architectures)
+        recs = self._packages(suite, None, None, components, index_arches)
+        wanted = set(architectures) if architectures else None
+        cands: list[PackageRecord] = []
+        for r in recs:
+            if r.name != name:
+                continue
+            if wanted is not None and r.architecture != "all" and r.architecture not in wanted:
+                continue
+            if not r.filename:
+                msg = f"{r.suite}: skipping {r.name} {r.component}/{r.arch}: no Filename listed"
+                self._problem_once((r.base_url, r.suite, msg), msg)
+                continue
+            cands.append(r)
+        if version is not None:
+            want = Version(version)
+            cands = [r for r in cands if r.version == want]
+        else:
+            cands = _current_per_target(cands, wanted)
+        plans: dict[tuple[str, ...], DownloadPlan] = {}
+        for r in cands:
+            spec = FileSpec(posixpath.basename(r.filename), r.url, r.size, r.strongest_hash)
+            # the same file listed in several indices (or mirrors) is planned once
+            key = (r.architecture, r.component, str(r.version), r.filename, *spec.hashes.values())
+            if key not in plans:
+                plans[key] = DownloadPlan(
+                    "binary",
+                    r.name,
+                    r.paragraph.get("Version", "0"),
+                    r.suite,
+                    r.component,
+                    r.architecture,
+                    (spec,),
+                )
+        return sorted(plans.values(), key=lambda p: (p.architecture or "", p.component))
+
+    def plan_source(
+        self,
+        suite: str,
+        name: str,
+        *,
+        version: str | None = None,
+        components: Sequence[str] | None = None,
+    ) -> DownloadPlan:
+        """Download plan for source package *name* of *suite* (highest version by default).
+
+        The files are those of the ``Sources`` stanza under its
+        ``Directory``, each with the strongest hash listed for it (see
+        :attr:`SourceRecord.files`), the ``.dsc`` first. :class:`RepoError`
+        when no such source (version) exists or it lists no ``.dsc``.
+        Only the ``Sources`` indices are downloaded (through the cache).
+        """
+        recs = [r for r in self._sources(suite, None, components) if r.name == name]
+        if version is not None:
+            want = Version(version)
+            recs = [r for r in recs if r.version == want]
+        if not recs:
+            what = name if version is None else f"{name} {version}"
+            raise RepoError(f"{suite}: source package {what} not found")
+        rec = max(recs, key=lambda r: r.version)  # the first of the highest
+        listed = rec._listed()
+        dsc = rec.dsc_name
+        if dsc is None:
+            raise RepoError(f"{rec.name} {rec.version}: no .dsc file listed")
+        order = [dsc] + [n for n in listed if n != dsc]
+        files = tuple(
+            FileSpec(
+                n,
+                _safe_join(rec.base_url, rec.directory, n),
+                _size_or_none(listed[n][1].size),
+                {listed[n][0]: listed[n][1].digest.lower()},
+            )
+            for n in order
+        )
+        version_text = rec.paragraph.get("Version", "0")
+        return DownloadPlan("source", rec.name, version_text, suite, rec.component, None, files)
+
+    @staticmethod
+    def group_packages(records: Iterable[PackageRecord]) -> list[PackageGroup]:
+        """Group *records* into one :class:`PackageGroup` per package version.
+
+        The key is suite, name, version (compared as :class:`Version`; the
+        text of the first record is reported) and component. Identical
+        ``Architecture: all`` records (from several per-arch indices) become
+        one variant. Groups are sorted by name, then version descending
+        (Debian ordering), then component and suite.
+        """
+        groups: dict[tuple[str, str, Version, str], list[PackageRecord]] = {}
+        for r in records:
+            # Version equality: "1.0" and "0:1.0" are one version
+            key = (r.suite, r.name, r.version, r.component)
+            variants = groups.setdefault(key, [])
+            if r.architecture == "all" and any(
+                v.architecture == "all" and v.paragraph == r.paragraph for v in variants
+            ):
+                continue
+            variants.append(r)
+        out: list[PackageGroup] = []
+        for (suite, name, _, component), variants in groups.items():
+            version = variants[0].paragraph.get("Version", "0")  # as first seen
+            variants.sort(key=lambda v: (v.arch, v.architecture))
+            multi = next((m for v in variants if (m := v.paragraph.get("Multi-Arch"))), None)
+            arches = tuple(sorted({v.architecture for v in variants}))
+            out.append(
+                PackageGroup(name, version, component, suite, arches, multi, tuple(variants))
+            )
+        out.sort(key=lambda g: (g.component, g.suite))
+        out.sort(key=lambda g: g.variants[0].version, reverse=True)
+        out.sort(key=lambda g: g.name)
+        return out
 
     def appstream(
         self, suite: str, component: str | None = None, arch: str | None = None
@@ -1144,6 +1586,35 @@ def _check_listed_hash(para: Paragraph, name: str, data: bytes) -> None:
             log.info("%s verified (%s, %d bytes)", name, algo, len(data))
             return
     raise HashMismatch(f"{name}: no hash listed in the Sources index")
+
+
+def _current_per_target(cands: list[PackageRecord], wanted: set[str] | None) -> list[PackageRecord]:
+    """The highest-version records for every target architecture.
+
+    Targets are the concrete architectures in *wanted*, else every concrete
+    architecture seen (``Architecture`` or index architecture), else
+    ``all``. A target's candidates are its own records and the ``all``
+    ones. Input order is kept.
+    """
+    targets = [a for a in sorted(wanted or ()) if a != "all"]
+    if not targets:
+        seen = {a for r in cands for a in (r.architecture, r.arch)}
+        targets = sorted(seen - {"all", ""}) or ["all"]
+    chosen: set[int] = set()
+    for target in targets:
+        mine = [r for r in cands if r.architecture in (target, "all")]
+        if not mine:
+            continue
+        best = max(r.version for r in mine)
+        chosen.update(id(r) for r in mine if r.version == best)
+    return [r for r in cands if id(r) in chosen]
+
+
+def _supports_binary_all(rel: Release) -> bool:
+    """Whether *rel* lists ``all`` and does not say its packages are elsewhere."""
+    if "all" not in rel.fields.get_list("Architectures", sep=None):
+        return False
+    return rel.fields.get("No-Support-for-Architecture-all", "").strip() != "Packages"
 
 
 def _unreachable(err: FetchError) -> bool:
