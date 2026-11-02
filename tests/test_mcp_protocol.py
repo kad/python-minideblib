@@ -386,6 +386,92 @@ def test_deadline_from_call_timeout(blocker: Blocker):
         proc.stop()
 
 
+def test_tool_timeout_overrides_call_timeout():
+    seen: list[ToolCall] = []
+
+    def record(call: ToolCall) -> dict[str, object]:
+        seen.append(call)
+        return {}
+
+    release = threading.Event()
+
+    def slow(call: ToolCall) -> dict[str, object]:
+        release.wait(5)
+        return {}
+
+    tools = [
+        Tool("long", "Long.", {"type": "object"}, record, read_only=False, timeout=900.0),
+        Tool("short", "Short.", {"type": "object"}, slow, read_only=True, timeout=0.1),
+    ]
+    proc = start_in_process(tools, call_timeout=33.0)
+    try:
+        proc.client.initialize()
+        before = time.monotonic()
+        proc.client.call("long", {})
+        deadline = seen[0].deadline
+        assert deadline is not None and before + 899 < deadline < time.monotonic() + 900.5
+        resp = proc.client.call("short", {})
+        assert resp["result"]["isError"] is True
+        assert "timed out after 0.1 s" in _text(resp)
+    finally:
+        release.set()
+        proc.stop()
+
+
+def test_tool_timeout_stuck_call_makes_server_busy():
+    gate = threading.Event()
+
+    def stuck(call: ToolCall) -> dict[str, object]:
+        gate.wait(WAIT)  # ignores cancellation
+        return {"late": True}
+
+    tools = [
+        *_tools(),
+        Tool("stuck", "Stuck.", {"type": "object"}, stuck, read_only=False, timeout=0.2),
+    ]
+    proc = start_in_process(tools, call_timeout=60.0)
+    try:
+        c = proc.client
+        c.initialize()
+        start = time.monotonic()
+        resp = c.call("stuck", {})
+        assert time.monotonic() - start < 5
+        assert "timed out after 0.2 s" in _text(resp)
+        busy = c.call("echo", {})
+        assert busy["result"]["isError"] is True
+        assert "server busy: a timed-out call is still running" in _text(busy)
+        gate.set()
+        assert json.loads(_text(_wait_not_busy(c))) == {"echo": {}}
+    finally:
+        gate.set()
+        proc.stop()
+
+
+def test_tool_timeout_long_call_ends_at_shutdown_grace():
+    gate = threading.Event()
+    started = threading.Event()
+
+    def long(call: ToolCall) -> dict[str, object]:
+        started.set()
+        gate.wait(WAIT)  # ignores cancellation
+        return {}
+
+    tools = [Tool("long", "Long.", {"type": "object"}, long, read_only=False, timeout=900.0)]
+    proc = start_in_process(tools, call_timeout=0.1)
+    proc.server.shutdown_grace = 0.2
+    try:
+        proc.client.initialize()
+        proc.client.send_request("tools/call", {"name": "long", "arguments": {}})
+        assert started.wait(WAIT)
+        time.sleep(0.3)  # past call_timeout: the tool's own timeout applies
+        assert proc.client.no_message(0.1)
+        start = time.monotonic()
+        assert proc.stop() == 0
+        assert time.monotonic() - start < 2
+    finally:
+        gate.set()
+
+
 def test_handler_failing_after_deadline_reports_timeout():
     def slow(call: ToolCall) -> dict[str, object]:
         assert call.deadline is not None
@@ -927,6 +1013,34 @@ def test_queue_is_bounded(blocker: Blocker):
         blocker.release.set()
         assert [c.recv()["id"] for _ in range(3)] == [first, *queued]
         assert "isError" not in c.call("echo", {})["result"]
+    finally:
+        blocker.release.set()
+        proc.stop()
+
+
+def test_cancelled_queued_jobs_still_count_against_the_queue(blocker: Blocker):
+    proc = start_in_process(_tools(blocker), max_queued=3)
+    try:
+        c = proc.client
+        c.initialize()
+        first = c.send_request("tools/call", {"name": "block", "arguments": {}})
+        assert blocker.started.wait(WAIT)
+        busy = 0
+        for i in range(30):
+            rid = f"c{i}"
+            c.send(
+                {"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": {"name": "echo"}}
+            )
+            c.notify("notifications/cancelled", {"requestId": rid})
+        while not c.no_message():
+            resp = c.recv()
+            assert "server busy" in _text(resp)
+            busy += 1
+        # the worker is blocked, so at most max_queued cancelled jobs fit in the queue
+        assert busy == 30 - 3
+        blocker.release.set()
+        assert c.recv()["id"] == first
+        assert "isError" not in _wait_not_busy(c)["result"]
     finally:
         blocker.release.set()
         proc.stop()

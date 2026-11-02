@@ -114,6 +114,7 @@ def test_defaults() -> None:
     assert isinstance(cfg, ServerConfig)
     assert cfg.repositories == ()
     assert cfg.download_dir is None
+    assert cfg.download_dir_id is None
     assert cfg.allow_download is True
     assert cfg.allowed_hosts is None
     assert cfg.allow_link_local is False
@@ -292,6 +293,8 @@ def test_download_dir_valid(tmp_path: Path) -> None:
     cfg = build_config(_args(download_dir=str(tmp_path)))
     assert cfg.download_dir == os.path.realpath(tmp_path)
     assert list(tmp_path.iterdir()) == []
+    info = os.stat(tmp_path)
+    assert cfg.download_dir_id == (info.st_dev, info.st_ino)
 
 
 def test_download_dir_missing(tmp_path: Path) -> None:

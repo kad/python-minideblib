@@ -426,7 +426,7 @@ def test_redirect_handler_policy_direct():
     from minideblib.repo.fetch import _SafeRedirectHandler
 
     f = Fetcher(allowed_hosts=["a.example"])
-    handler = _SafeRedirectHandler(f._check_host)
+    handler = _SafeRedirectHandler(f.check_host)
     headers = email.message.Message()
     with pytest.raises(HostNotAllowed) as ei:
         handler.redirect_request(
@@ -768,3 +768,11 @@ def test_peer_check_refuses_when_the_connect_hook_is_bypassed(
     assert accepted.wait(2)  # it did connect (the hook was bypassed) ...
     t.join(5)
     assert received == [0]  # ... but sent nothing, not even a TLS ClientHello
+
+
+def test_check_host_is_public_and_makes_no_request() -> None:
+    f = Fetcher(allowed_hosts=["deb.debian.org"])
+    f.check_host("https://deb.debian.org/debian")
+    f.check_host("file:///srv/mirror")  # no host: not affected
+    with pytest.raises(HostNotAllowed):
+        f.check_host("http://archive.ubuntu.com/ubuntu")

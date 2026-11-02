@@ -27,7 +27,7 @@ import tempfile
 import threading
 import time
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -42,6 +42,7 @@ __all__ = [
     "WriteRoot",
     "WriteRootError",
     "session_temp_dir",
+    "session_temp_path",
     "validate_file_name",
 ]
 
@@ -367,12 +368,16 @@ class WriteRoot:
             return False
         return True
 
-    def hash_existing(self, name: str, algorithm: str) -> str:
+    def hash_existing(
+        self, name: str, algorithm: str, *, check: Callable[[], None] | None = None
+    ) -> str:
         """Hex digest of the regular file *name* (symlinks are not followed).
 
         *algorithm* is a hashlib name from :data:`minideblib.checksums.ALGORITHMS`
         (``ValueError`` otherwise). A symlink, directory, FIFO or device raises
         :class:`WriteRootError`; a missing file :class:`FileNotFoundError`.
+        *check* is called before every chunk read (1 MiB); whatever it raises
+        (cancellation, a deadline) stops the hashing.
         """
         if algorithm not in _HASHES:
             raise ValueError(f"unsupported checksum algorithm {algorithm!r}")
@@ -396,7 +401,12 @@ class WriteRoot:
             # O_NONBLOCK only guarded the open against FIFOs
             os.set_blocking(fd, True)
             hasher = hashlib.new(algorithm, usedforsecurity=False)
-            while chunk := handle.read(_CHUNK):
+            while True:
+                if check is not None:
+                    check()
+                chunk = handle.read(_CHUNK)
+                if not chunk:
+                    break
                 hasher.update(chunk)
         return hasher.hexdigest()
 
@@ -456,6 +466,11 @@ class NewFile:
         self._ident = _identity(os.fstat(fd))
         self.file: io.BufferedWriter = open(fd, "wb", closefd=True)  # noqa: SIM115
 
+    @property
+    def identity(self) -> tuple[int, int]:
+        """``(st_dev, st_ino)`` of the file created (also of the published name)."""
+        return self._ident
+
     def __enter__(self) -> Self:
         return self
 
@@ -512,12 +527,22 @@ class NewFile:
                     ) from exc
                 raise
             if _identity(os.stat(name, dir_fd=dir_fd, follow_symlinks=False)) != self._ident:
-                with contextlib.suppress(OSError):
-                    os.unlink(name, dir_fd=dir_fd)
+                # best effort: whatever is under the final name now is not ours, so it is
+                # left alone (it may belong to another writer); abort() removes our temp link
                 raise WriteRootError(errno.EEXIST, f"{shown}: replaced while publishing")
+            try:
+                os.unlink(self.temp_name, dir_fd=dir_fd)
+                os.fsync(dir_fd)
+            except OSError:
+                # not durably published: take our own link back so a failed commit
+                # never leaves a published file the caller does not know about
+                with contextlib.suppress(OSError):
+                    if _identity(os.stat(name, dir_fd=dir_fd, follow_symlinks=False)) == (
+                        self._ident
+                    ):
+                        os.unlink(name, dir_fd=dir_fd)
+                raise
             self.committed = True
-            os.unlink(self.temp_name, dir_fd=dir_fd)
-            os.fsync(dir_fd)
         except BaseException:
             if not self.committed:
                 self.abort()
@@ -580,3 +605,12 @@ def session_temp_dir() -> WriteRoot:
                 ) from exc
             _session = WriteRoot.open(path, private=True)
         return _session.subdir([])
+
+
+def session_temp_path() -> str | None:
+    """The path of the session temporary directory, or None if not created yet.
+
+    Creates nothing (for reporting, e.g. by the overview tool).
+    """
+    with _session_lock:
+        return None if _session is None else _session.path

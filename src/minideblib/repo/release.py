@@ -37,6 +37,7 @@ __all__ = [
     "icon_size",
     "index_url",
     "index_urls",
+    "is_not_found",
     "is_unsafe_path",
     "select_indices",
 ]
@@ -275,7 +276,8 @@ def dists_url(base_url: str, suite: str) -> str:
     return f"{base}/dists/{suite}"
 
 
-def _not_found(err: FetchError) -> bool:
+def is_not_found(err: FetchError) -> bool:
+    """Whether *err* means "not there": HTTP 404 or a missing ``file://`` file."""
     return err.status == 404 or (err.status is None and _is_missing_file(err))
 
 
@@ -294,7 +296,7 @@ def fetch_release(
         data = fetcher.get(f"{url}/InRelease")
         log.info("using InRelease")
     except FetchError as e:
-        if not _not_found(e):
+        if not is_not_found(e):
             raise
         log.info("InRelease not found, using Release")
         data = fetcher.get(f"{url}/Release")

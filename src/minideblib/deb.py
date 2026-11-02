@@ -26,6 +26,7 @@ __all__ = [
     "DebError",
     "DebFile",
     "DebPackage",
+    "DebMemberTooLargeError",
     "DebSizeLimitError",
     "MissingMemberError",
     "decompress",
@@ -51,6 +52,10 @@ class DebError(MinidebError):
 
 class DebSizeLimitError(DebError, DecompressionLimitError):
     """Decompressed or extracted data exceeds the size limit."""
+
+
+class DebMemberTooLargeError(DebSizeLimitError):
+    """:meth:`DebPackage.read`: the member is larger than the *max_size* given."""
 
 
 class MissingMemberError(DebError, KeyError):
@@ -253,36 +258,45 @@ class DebPackage:
             self._data_tar = decompress(self._data_raw, self._data_name, self._max_size)
         return _open_tar(self._data_tar)
 
-    def files(self) -> list[DebFile]:
+    def files(self, max_entries: int | None = None) -> list[DebFile]:
         """Entries of the data archive in archive order.
 
         An mtime that is not finite or outside ``[0, 2**37)`` is listed as 0.
+        With *max_entries*, more entries than that raise
+        :class:`DebSizeLimitError` (nothing is returned).
         """
+        out: list[DebFile] = []
         with self._tar() as tf, _tar_errors():
-            return [
-                DebFile(
-                    ti.name,
-                    ti.size,
-                    ti.mode,
-                    ti.uid,
-                    ti.gid,
-                    ti.mtime if _valid_mtime(ti.mtime) else 0,
-                    _TYPES.get(ti.type, "o"),
-                    ti.linkname,
+            for ti in tf:
+                if max_entries is not None and len(out) >= max_entries:
+                    raise DebSizeLimitError(f"more than {max_entries} entries in the data archive")
+                out.append(
+                    DebFile(
+                        ti.name,
+                        ti.size,
+                        ti.mode,
+                        ti.uid,
+                        ti.gid,
+                        ti.mtime if _valid_mtime(ti.mtime) else 0,
+                        _TYPES.get(ti.type, "o"),
+                        ti.linkname,
+                    )
                 )
-                for ti in tf
-            ]
+        return out
 
-    def read(self, path: str) -> bytes:
+    def read(self, path: str, max_size: int | None = None) -> bytes:
         """Contents of the regular file *path* of the data archive.
 
         :class:`MissingMemberError` (a :class:`DebError` and ``KeyError``)
-        if there is no such regular file.
+        if there is no such regular file. With *max_size*, a member larger
+        than that raises :class:`DebMemberTooLargeError` before it is read.
         """
         want = _norm(path)
         with self._tar() as tf, _tar_errors():
             for ti in tf:
                 if _norm(ti.name) == want and ti.isreg():
+                    if max_size is not None and ti.size > max_size:
+                        raise DebMemberTooLargeError(f"{path!r} is larger than {max_size} bytes")
                     f = tf.extractfile(ti)
                     assert f is not None
                     return f.read()

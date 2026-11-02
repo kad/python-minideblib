@@ -10,7 +10,7 @@ import logging
 from minideblib.compress import DEFAULT_MAX_SIZE, decompress
 from minideblib.control import Paragraph, decode_text, parse_paragraphs
 from minideblib.repo.fetch import Fetcher, FetchError, redact_url
-from minideblib.repo.release import IndexFile, Release, _not_found, index_urls
+from minideblib.repo.release import IndexFile, Release, index_urls, is_not_found
 
 __all__ = [
     "fetch_index",
@@ -102,7 +102,7 @@ def fetch_index(
             raw = fetcher.get(url)
             break
         except FetchError as e:
-            if not _not_found(e) or i == len(urls) - 1:
+            if not is_not_found(e) or i == len(urls) - 1:
                 raise
             log.debug("%s not found, trying next candidate", redact_url(url))
     if verify:
