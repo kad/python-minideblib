@@ -10,7 +10,8 @@ confined write helpers and :mod:`minideblib.mcp.startup` the startup checks
 and :class:`~minideblib.mcp.startup.ServerConfig`; :mod:`minideblib.mcp.tools`
 builds the tools (:func:`~minideblib.mcp.tools.build_tools`), with repository
 access and text cleaning in :mod:`minideblib.mcp.repos` and the read-only
-repository tools in :mod:`minideblib.mcp.tools_repo`.
+repository tools in :mod:`minideblib.mcp.tools_repo`; :mod:`minideblib.mcp.run`
+is the ``minideb mcp`` command (:func:`~minideblib.mcp.run.run`).
 """
 
 from __future__ import annotations

@@ -1190,3 +1190,41 @@ def test_client_response_without_jsonrpc_ignored(ready: McpClient):
     ready.send({"id": 6, "error": {"code": 1, "message": "x"}})
     assert ready.request("ping")["result"] == {}
     assert ready.no_message()
+
+
+def test_unexpected_worker_error_still_answers(caplog: pytest.LogCaptureFixture):
+    # a deadline beyond threading.TIMEOUT_MAX makes the worker's join raise OverflowError
+    log = logging.getLogger("test.mcp.overflow")
+    proc = start_in_process(_tools(), call_timeout=1e300, log=log)
+    try:
+        proc.client.initialize()
+        with caplog.at_level(logging.ERROR, logger="test.mcp.overflow"):
+            for _ in range(2):  # the worker survives and the id is free again
+                resp = proc.client.call("echo", {})
+                assert resp["result"]["isError"] is True
+                assert _text(resp) == "internal error in tool echo"
+        assert proc.server._current is None
+        assert "tool call failed unexpectedly" in caplog.text
+    finally:
+        proc.stop()
+
+
+def test_handler_error_with_a_broken_message_is_answered():
+    class Odd(ToolError):
+        def __str__(self) -> str:
+            raise LookupError("no message")
+
+    def odd(call: ToolCall) -> dict[str, object]:
+        raise Odd()
+
+    proc = start_in_process(_tools(odd=odd), log=logging.getLogger("test.mcp.odd"))
+    try:
+        proc.client.initialize()
+        resp = proc.client.call("odd", {})
+        assert resp["result"]["isError"] is True
+        assert _text(resp) == "internal error in tool odd"
+        assert proc.client.call("echo", {"a": 1})["result"]["structuredContent"] == {
+            "echo": {"a": 1}
+        }
+    finally:
+        proc.stop()

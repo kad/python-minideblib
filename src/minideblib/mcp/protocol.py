@@ -69,7 +69,9 @@ Decisions where the MCP and JSON-RPC texts leave a choice:
   run in parallel). At most ``max_queued`` (:data:`MAX_QUEUED`, 8) calls may
   be pending (running or queued); further calls get an ``isError`` "server
   busy" result at once. A ``BaseException`` from a handler (``SystemExit``
-  included) becomes a generic ``isError`` result; the worker survives. An
+  included) becomes a generic ``isError`` result; the worker survives (an
+  unexpected error in the worker itself also answers the call with a generic
+  ``isError`` result unless it was cancelled). An
   unexpected error while handling an incoming line is logged and answered
   with ``-32603`` ("Internal error", ``id: null``).
 * **Cancellation**: ``notifications/cancelled`` cancels the request's
@@ -430,6 +432,8 @@ class _Job:
     tool: Tool
     arguments: dict[str, object]
     token: CancelToken
+    #: set once the call was answered (or deliberately left unanswered)
+    done: bool = False
 
 
 class McpServer:
@@ -805,7 +809,27 @@ class McpServer:
                 self._run(job)
             except BaseException:
                 self._log.exception("tool call failed unexpectedly")
-                self._release(job)
+                self._recover(job)
+
+    def _recover(self, job: _Job) -> None:
+        """After an unexpected error in :meth:`_run`: reset the state, answer the call.
+
+        A call thread still running is cancelled and kept as the stuck call;
+        the request gets an ``isError`` result unless it was cancelled by the
+        client or already answered.
+        """
+        with self._lock:
+            running = self._current
+            self._current = None
+            if running is not None and running[1].is_alive():
+                self._stuck = running
+        cancelled = job.token.is_cancelled
+        job.token.cancel()
+        self._release(job)
+        if not (cancelled or job.done):
+            job.done = True
+            result = _error_result(f"internal error in tool {job.tool.name}")
+            self._write(_encode({"jsonrpc": "2.0", "id": job.request_id, "result": result}))
 
     def _release(self, job: _Job) -> None:
         """Free the job's id (unless it was freed and reused meanwhile)."""
@@ -816,6 +840,7 @@ class McpServer:
 
     def _run(self, job: _Job) -> None:
         if job.token.is_cancelled:  # cancelled while queued
+            job.done = True
             self._release(job)
             return
         timed_out = False
@@ -856,6 +881,7 @@ class McpServer:
                 result = _error_result(f"internal error in tool {job.tool.name}")
         self._release(job)
         if job.token.is_cancelled and not timed_out:
+            job.done = True
             self._log.debug("request %s cancelled: no response", _quote(str(job.request_id)))
             return
         data = _encode({"jsonrpc": "2.0", "id": job.request_id, "result": result})
@@ -868,6 +894,7 @@ class McpServer:
                 f"{self._max_response} bytes; narrow the request (smaller limit, more filters)"
             )
             data = _encode({"jsonrpc": "2.0", "id": job.request_id, "result": replacement})
+        job.done = True
         self._write(data)
 
     def _limit(self, tool: Tool) -> float:

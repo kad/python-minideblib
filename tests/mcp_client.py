@@ -110,6 +110,11 @@ class McpClient:
             raise AssertionError("server output not closed") from None
         assert line is None, line
 
+    def wait_closed(self, timeout: float = TIMEOUT) -> None:
+        """Wait until the server closes its output; messages stay in :attr:`raw`."""
+        self._reader.join(timeout)
+        assert not self._reader.is_alive(), "server output not closed"
+
     def request(
         self, method: str, params: dict[str, Any] | None = None, timeout: float = TIMEOUT
     ) -> dict[str, Any]:

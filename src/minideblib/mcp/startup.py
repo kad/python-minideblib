@@ -27,6 +27,8 @@ from minideblib.repo.fetch import Fetcher, redact_url
 from minideblib.sources import SourceEntry, SourcesError
 
 __all__ = [
+    "MAX_SECONDS",
+    "MIN_RESPONSE_BYTES",
     "RepositorySpec",
     "ServerConfig",
     "StartupError",
@@ -37,6 +39,13 @@ __all__ = [
 ]
 
 _URL_SCHEMES = ("http", "https", "file")
+#: the smallest accepted ``--max-response-bytes``: tools budget their results
+#: to a third of the cap (protocol 2025-06-18 and later carry a result twice),
+#: and a few hundred bytes go to the JSON-RPC envelope and error messages
+MIN_RESPONSE_BYTES = 4096
+#: the largest accepted time option (seconds): 7 days, far below
+#: ``threading.TIMEOUT_MAX`` and still finite for every deadline computation
+MAX_SECONDS = 7 * 24 * 3600
 #: functions the confined writes call with ``dir_fd``
 _DIR_FD_FUNCS = ("open", "mkdir", "link", "unlink", "stat")
 
@@ -133,6 +142,23 @@ def _positive(value: float, option: str, *, integer: bool = False, zero: bool = 
     return value
 
 
+def _seconds(value: float, option: str) -> float:
+    value = _positive(value, option)
+    if value > MAX_SECONDS:
+        raise StartupError(f"--{option}: must be at most {MAX_SECONDS} seconds (7 days)")
+    return value
+
+
+def _response_cap(value: int) -> int:
+    value = _positive(value, "max-response-bytes", integer=True)
+    if value < MIN_RESPONSE_BYTES:
+        raise StartupError(
+            f"--max-response-bytes: must be at least {MIN_RESPONSE_BYTES} "
+            "(room for a useful tool result and its JSON-RPC envelope)"
+        )
+    return value
+
+
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*")
 
 
@@ -212,7 +238,9 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     system sources are never read implicitly. An explicit ``--download-dir``
     (``~`` expanded) must exist, be a directory (not a symlink) and be
     writable by the effective user; its device and inode are recorded
-    (:attr:`ServerConfig.download_dir_id`).
+    (:attr:`ServerConfig.download_dir_id`). ``--max-response-bytes`` must be
+    at least :data:`MIN_RESPONSE_BYTES`; ``--timeout``, ``--call-timeout`` and
+    ``--download-timeout`` at most :data:`MAX_SECONDS`.
     """
     defaults = ServerConfig()
     hosts_opt = getattr(args, "allow_host", None)
@@ -237,10 +265,8 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         allow_download=not getattr(args, "no_download", False),
         allowed_hosts=allowed_hosts,
         allow_link_local=bool(getattr(args, "allow_link_local", False)),
-        max_response_bytes=_positive(
-            _opt(args, "max_response_bytes", defaults.max_response_bytes),
-            "max-response-bytes",
-            integer=True,
+        max_response_bytes=_response_cap(
+            _opt(args, "max_response_bytes", defaults.max_response_bytes)
         ),
         max_download_bytes=_positive(
             _opt(args, "max_download_bytes", defaults.max_download_bytes),
@@ -248,12 +274,12 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
             integer=True,
         ),
         verify=bool(getattr(args, "verify", True)),
-        timeout=_positive(_opt(args, "timeout", defaults.timeout), "timeout"),
+        timeout=_seconds(_opt(args, "timeout", defaults.timeout), "timeout"),
         retries=_positive(
             _opt(args, "retries", defaults.retries), "retries", integer=True, zero=True
         ),
-        call_timeout=_positive(_opt(args, "call_timeout", defaults.call_timeout), "call-timeout"),
-        download_timeout=_positive(
+        call_timeout=_seconds(_opt(args, "call_timeout", defaults.call_timeout), "call-timeout"),
+        download_timeout=_seconds(
             _opt(args, "download_timeout", defaults.download_timeout), "download-timeout"
         ),
     )
