@@ -39,7 +39,14 @@ from minideblib.control import Paragraph
 from minideblib.dsc import Dsc
 from minideblib.errors import MinidebError
 from minideblib.repo import dep11
-from minideblib.repo.fetch import FetchCancelled, Fetcher, FetchError, redact_url
+from minideblib.repo.fetch import (
+    CancelToken,
+    FetchCancelled,
+    Fetcher,
+    FetchError,
+    FetchTimeout,
+    redact_url,
+)
 from minideblib.repo.index import fetch_index, parse_contents, parse_packages, parse_sources
 from minideblib.repo.release import (
     HashMismatch,
@@ -523,6 +530,9 @@ class RepoClient:
         and no explicit suites) the result is ``[]`` without any request.
         :meth:`Fetcher.cancel` during probing raises
         :class:`~minideblib.repo.fetch.FetchCancelled`; nothing is cached.
+        The token and deadline of an enclosing :meth:`Fetcher.scope` apply
+        to the probes too (:class:`~minideblib.repo.fetch.FetchCancelled`
+        or :class:`~minideblib.repo.fetch.FetchTimeout`).
         """
         if self._suites is None:
             if self._url is None:
@@ -590,10 +600,13 @@ class RepoClient:
         """:meth:`_probe_one` for every suite of *work* on daemon threads, in order.
 
         The workers are daemon threads so that interpreter exit does not wait
-        for in-flight probes. On any exception in the calling thread (Ctrl-C)
-        or in a worker (such as :class:`FetchCancelled`), queued probes are
-        dropped, the Fetcher's in-flight retries are cancelled and the
-        exception propagates at once.
+        for in-flight probes. On any exception in the calling thread (Ctrl-C,
+        the token or deadline of an enclosing :meth:`Fetcher.scope`, a
+        :meth:`Fetcher.cancel`) or in a worker (such as
+        :class:`FetchCancelled`), queued probes are dropped, the retries of
+        this run's in-flight probes are cancelled through a token of their
+        own (other requests of the Fetcher, in other threads, are not
+        affected) and the exception propagates at once.
         """
         jobs: queue.SimpleQueue[int] = queue.SimpleQueue()
         for i in range(len(work)):
@@ -601,20 +614,26 @@ class RepoClient:
         done: queue.SimpleQueue[tuple[int, Any]] = queue.SimpleQueue()
         stop = threading.Event()
         # every probe request uses the cancellation event current now, so that
-        # cancel() reaches requests that start after it, too
+        # cancel() reaches requests that start after it, too; likewise the
+        # token and deadline of the caller's Fetcher.scope()
         cancelled = self.fetcher._current_cancel()
+        call = self.fetcher._current_call()
+        # stops this run's probes only (Fetcher.cancel() would stop every
+        # request of the Fetcher, in all threads)
+        probe_stop = CancelToken()
 
         def worker() -> None:
             self.fetcher._bind_cancel(cancelled)
-            while not stop.is_set():  # after cancel(), requests raise FetchCancelled
-                try:
-                    i = jobs.get_nowait()
-                except queue.Empty:
-                    return
-                try:
-                    done.put((i, self._probe_one(url, work[i], stop)))
-                except BaseException as e:  # re-raised in the calling thread
-                    done.put((i, e))
+            with self.fetcher._call_scope(token=probe_stop, base=call):
+                while not stop.is_set():  # after cancel(), requests raise FetchCancelled
+                    try:
+                        i = jobs.get_nowait()
+                    except queue.Empty:
+                        return
+                    try:
+                        done.put((i, self._probe_one(url, work[i], stop)))
+                    except BaseException as e:  # re-raised in the calling thread
+                        done.put((i, e))
 
         for _ in range(min(PROBE_WORKERS, len(work))):
             threading.Thread(target=worker, name="minideb-probe", daemon=True).start()
@@ -626,13 +645,19 @@ class RepoClient:
                         i, result = done.get(timeout=0.1)
                         break
                     except queue.Empty:
-                        continue
+                        # cancel() and the scope's token/deadline also stop a
+                        # run whose probes are blocked in a read
+                        if cancelled.is_set():
+                            raise FetchCancelled(
+                                f"request cancelled: {redact_url(url)}", url
+                            ) from None
+                        call.check(url)
                 if isinstance(result, BaseException):
                     raise result
                 results[i] = result
         except BaseException:
             stop.set()
-            self.fetcher.cancel()
+            probe_stop.cancel()
             raise
         return results
 
@@ -653,7 +678,7 @@ class RepoClient:
             try:
                 if self.fetcher.exists(f"{dists}/{name}"):
                     return suite, True, None
-            except FetchCancelled:
+            except (FetchCancelled, FetchTimeout):
                 raise
             except FetchError as e:
                 if e.status not in _ABSENT_STATUS:

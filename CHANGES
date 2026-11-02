@@ -1,6 +1,34 @@
 Unreleased
 ==========
 
+* The Fetcher refuses link-local addresses (169.254.0.0/16, fe80::/10), the
+  metadata service addresses fd00:ec2::254 and 100.100.100.200 and the cloud
+  metadata host names metadata, metadata.google.internal and instance-data,
+  for requested URLs and redirect targets alike (HostNotAllowed, a
+  FetchError). Host names are also checked when connecting: a name that
+  resolves to such an address is refused, and the connection goes to the
+  checked address. Host names are compared in their IDNA form. Pass
+  block_link_local=False to allow all of these. Loopback and private
+  addresses are still allowed. Through a proxy (http_proxy/https_proxy)
+  the proxy resolves the names, so only the URL text is checked; the proxy
+  is trusted configuration. IPv6 addresses embedding an IPv4 address
+  (IPv4-mapped, NAT64 64:ff9b::/96, IPv4-compatible) are judged by that
+  address. The connected peer address is checked again before anything
+  is sent.
+* Fetcher(allowed_hosts=...) restricts http(s) requests and redirects to the
+  given hosts (exact names or *.suffix wildcards; file: URLs are not
+  affected). A bare string, or an entry with a path or a port, is rejected.
+* Fetcher.get() and Fetcher.exists() take an optional per-call CancelToken
+  (token=) and a time.monotonic() deadline (deadline=), and the new
+  Fetcher.scope(token=, deadline=) context manager applies them to every
+  request inside it, including those of RepoClient (suite probing too).
+  They are checked before every attempt and between body chunks, end
+  backoff waits early and bound each socket wait (DNS resolution is not
+  bounded by the deadline); cancellation raises
+  FetchCancelled, an expired deadline the new FetchTimeout. get() and
+  exists() gained keyword-only parameters: subclasses that override them
+  should accept them (for example with **kw) and pass them on.
+
 minideblib 0.7.0 (2026-11-01)
 =============================
 

@@ -329,9 +329,9 @@ def test_suites_debug_output_one_absent_line(two_suites, capsys):
 class _Counting(Fetcher):
     calls: list[str] = []
 
-    def exists(self, url: str) -> bool:
+    def exists(self, url: str, **kw: Any) -> bool:
         type(self).calls.append(url)
-        return super().exists(url)
+        return super().exists(url, **kw)
 
 
 @pytest.fixture
