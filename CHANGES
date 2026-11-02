@@ -1,6 +1,20 @@
 Unreleased
 ==========
 
+* New command minideb mcp: a local Model Context Protocol server for AI agents
+  on stdin/stdout (JSON-RPC 2.0, standard library only, Linux and macOS, never
+  as root). Tools: repository_overview, search_packages, package_versions,
+  package_info, source_info, find_file, appstream_components, download_package,
+  inspect_deb and inspect_dsc. Downloads go only to --download-dir (default:
+  the current directory) and a private per-session temporary directory, never
+  overwrite, never follow symlinks, and are verified against a SHA256 or
+  stronger hash from the repository metadata. Options: --download-dir,
+  --no-download, --allow-host, --allow-link-local, --max-response-bytes,
+  --max-download-bytes, --call-timeout and --download-timeout. Repositories
+  come from --url and --sources only (the system sources are not read); the
+  agent may also name a repository URL in each call. See "Using minideb with AI
+  agents" in README.md, the MCP SERVER section of the man page and the new
+  example examples/12_mcp_client.py.
 * RepoClient.fetch_dsc() takes an optional keyword-only verify argument that
   overrides the client's setting for that one fetch.
 * verify_file() takes an optional keyword-only progress callback that is called
@@ -73,6 +87,9 @@ Unreleased
   MiB) bounds the cached parsed indices by an estimate (8 times their
   decompressed size, 4 for Contents), dropping the least recently used ones; they are
   downloaded again when needed.
+* minideb -vv prints the traceback of an error after its one-line message,
+  and the warnings about malformed one-line sources.list entries have URL
+  credentials removed.
 
 minideblib 0.7.0 (2026-11-01)
 =============================
