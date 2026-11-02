@@ -31,6 +31,7 @@ __all__ = [
     "ServerConfig",
     "StartupError",
     "build_config",
+    "check_url",
     "check_not_root",
     "check_platform",
 ]
@@ -100,6 +101,9 @@ class ServerConfig:
     #: resolved explicit ``--download-dir`` (checked at start), or None for
     #: the current directory (checked when a download is requested)
     download_dir: str | None = None
+    #: ``(st_dev, st_ino)`` of :attr:`download_dir` when it was checked at
+    #: start; downloads refuse a directory that is no longer the same one
+    download_dir_id: tuple[int, int] | None = None
     allow_download: bool = True
     #: ``--allow-host`` entries, or None for any host
     allowed_hosts: tuple[str, ...] | None = None
@@ -132,8 +136,10 @@ def _positive(value: float, option: str, *, integer: bool = False, zero: bool = 
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*")
 
 
-def _check_url(url: str, option: str) -> str:
+def check_url(url: str, option: str) -> str:
     """Return *url* if usable as a repository URL, else raise :class:`StartupError`.
+
+    *option* names the source of the URL in messages (``--url``, ...).
 
     Messages never quote the URL itself (it may carry credentials): only the
     option, the scheme and, once the URL parsed, the host.
@@ -166,7 +172,7 @@ def _repositories(urls: list[str], sources_path: str | None) -> tuple[Repository
     # keyed by the URL without trailing slashes; the first spelling is kept
     ordered: dict[str, tuple[str, list[SourceEntry]]] = {}
     for url in urls:
-        ordered.setdefault(_check_url(url, "--url").rstrip("/"), (url, []))
+        ordered.setdefault(check_url(url, "--url").rstrip("/"), (url, []))
     if sources_path is not None:
         try:
             entries = sources.load(Path(sources_path))
@@ -174,7 +180,7 @@ def _repositories(urls: list[str], sources_path: str | None) -> tuple[Repository
             raise StartupError(f"--sources {sources_path}: {redact_url(str(exc))}") from None
         for entry in entries:
             if entry.enabled:
-                _check_url(entry.uri, f"--sources {sources_path}")
+                check_url(entry.uri, f"--sources {sources_path}")
                 ordered.setdefault(entry.uri.rstrip("/"), (entry.uri, []))[1].append(entry)
     return tuple(
         RepositorySpec(f"repo{i}", url, tuple(group))
@@ -182,7 +188,8 @@ def _repositories(urls: list[str], sources_path: str | None) -> tuple[Repository
     )
 
 
-def _download_dir(path: str) -> str:
+def _download_dir(path: str) -> tuple[str, tuple[int, int]]:
+    """The resolved path of *path* and its ``(st_dev, st_ino)``."""
     try:
         root = WriteRoot.open(path)
     except WriteRootError as exc:
@@ -190,7 +197,8 @@ def _download_dir(path: str) -> str:
     with root:
         if not root.writable():
             raise StartupError(f"--download-dir {root.path}: not writable by the current user")
-        return root.path
+        info = os.fstat(root.fileno())
+        return root.path, (info.st_dev, info.st_ino)
 
 
 def build_config(args: argparse.Namespace) -> ServerConfig:
@@ -203,7 +211,8 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     that repository); every URI passes the same checks as ``--url``; the
     system sources are never read implicitly. An explicit ``--download-dir``
     (``~`` expanded) must exist, be a directory (not a symlink) and be
-    writable by the effective user.
+    writable by the effective user; its device and inode are recorded
+    (:attr:`ServerConfig.download_dir_id`).
     """
     defaults = ServerConfig()
     hosts_opt = getattr(args, "allow_host", None)
@@ -215,13 +224,16 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         except (TypeError, ValueError) as exc:
             raise StartupError(f"--allow-host: {exc}") from None
     download_dir = getattr(args, "download_dir", None)
+    checked: tuple[str, tuple[int, int]] | None = None
     if download_dir is not None:
         download_dir = os.path.expanduser(os.fspath(download_dir))
         if not download_dir:
             raise StartupError("--download-dir: empty path")
+        checked = _download_dir(download_dir)
     return ServerConfig(
         repositories=_repositories(list(getattr(args, "url", None) or ()), _sources_arg(args)),
-        download_dir=None if download_dir is None else _download_dir(download_dir),
+        download_dir=None if checked is None else checked[0],
+        download_dir_id=None if checked is None else checked[1],
         allow_download=not getattr(args, "no_download", False),
         allowed_hosts=allowed_hosts,
         allow_link_local=bool(getattr(args, "allow_link_local", False)),

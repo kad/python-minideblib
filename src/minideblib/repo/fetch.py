@@ -514,7 +514,8 @@ class Fetcher:
     metadata service addresses ``fd00:ec2::254`` (AWS, IPv6) and
     ``100.100.100.200`` (Alibaba Cloud). Host names are compared in their
     IDNA (ASCII) form; a name without one is refused. A refused URL raises
-    :class:`HostNotAllowed` before any connection is made. With
+    :class:`HostNotAllowed` before any connection is made
+    (:meth:`check_host` applies the same check without a request). With
     *block_link_local*, every host name is also checked when connecting:
     if any address it resolves to is refused, :class:`HostNotAllowed` is
     raised (not retried), and the connection goes to the checked address.
@@ -566,9 +567,9 @@ class Fetcher:
         self._cancel = threading.Event()
         # per-thread override of the cancellation event (see _bind_cancel)
         self._local = threading.local()
-        self._opener = _build_opener(self._check_host, vet_addresses=block_link_local)
+        self._opener = _build_opener(self.check_host, vet_addresses=block_link_local)
 
-    def _check_host(self, url: str) -> None:
+    def check_host(self, url: str) -> None:
         """Raise :class:`HostNotAllowed` if the host policy refuses *url*."""
         parts = urlsplit(url)
         if parts.scheme.lower() not in ("http", "https"):
@@ -725,7 +726,7 @@ class Fetcher:
 
     def _open(self, url: str, method: str, attempt: int = 1) -> _Response:
         _check_scheme(url)
-        self._check_host(url)
+        self.check_host(url)
         _check_regular_file(url)
         timeout = self.timeout
         remaining = self._current_call().remaining()
@@ -802,7 +803,7 @@ class Fetcher:
         read returns. Both add to an enclosing :meth:`scope`.
         """
         _check_scheme(url)
-        self._check_host(url)
+        self.check_host(url)
         with self._call_scope(token, deadline):
             return self._with_retries(lambda n: self._get_once(url, n), url)
 
@@ -910,7 +911,7 @@ class Fetcher:
             raise ValueError(f"max_bytes must not be negative, not {max_bytes}")
         algs = _download_algorithms(expected_hashes)
         _check_scheme(url)
-        self._check_host(url)
+        self.check_host(url)
         if expected_size is not None and expected_size > max_bytes:
             raise FetchError(
                 f"{redact_url(url)} exceeds {max_bytes} bytes (expected {expected_size})", url
@@ -999,7 +1000,7 @@ class Fetcher:
         *token* and *deadline* work as for :meth:`get` and cover both.
         """
         _check_scheme(url)
-        self._check_host(url)
+        self.check_host(url)
         cancelled = self._current_cancel()
         with self._call_scope(token, deadline):
             try:

@@ -722,6 +722,16 @@ def test_fetch_dsc_tampered_no_verify(tmp_path):
     assert c.fetch_dsc(rec).maintainer == "Evil <test@example.com>"
 
 
+def test_fetch_dsc_verify_true_overrides_a_no_verify_client(tmp_path):
+    base = make_repo(tmp_path, comps=("main",), dsc=True)
+    c = RepoClient.from_url(base, suites=[SUITE], verify=False)
+    (rec,) = c.sources(SUITE)
+    path = tmp_path / "pool" / "main" / "s" / "sample-pkg" / DSC_NAME
+    path.write_bytes(path.read_bytes().replace(b"Test", b"Evil"))
+    with pytest.raises(HashMismatch, match=DSC_NAME):
+        c.fetch_dsc(rec, verify=True)
+
+
 def test_fetch_dsc_uses_strongest_listed_hash(tmp_path):
     _, c = _dsc_client(tmp_path)
     (rec,) = c.sources(SUITE)

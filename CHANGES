@@ -1,6 +1,15 @@
 Unreleased
 ==========
 
+* RepoClient.fetch_dsc() takes an optional keyword-only verify argument that
+  overrides the client's setting for that one fetch.
+* verify_file() takes an optional keyword-only progress callback that is called
+  before every read, so callers can stop a long verification (cancellation,
+  deadlines).
+* DebPackage.read() takes an optional max_size: a larger member raises
+  DebMemberTooLargeError (a DebSizeLimitError) before it is read, and
+  DebPackage.files() takes an optional max_entries (DebSizeLimitError when
+  the data archive has more entries).
 * The Fetcher refuses link-local addresses (169.254.0.0/16, fe80::/10), the
   metadata service addresses fd00:ec2::254 and 100.100.100.200 and the cloud
   metadata host names metadata, metadata.google.internal and instance-data,
@@ -18,6 +27,10 @@ Unreleased
 * Fetcher(allowed_hosts=...) restricts http(s) requests and redirects to the
   given hosts (exact names or *.suffix wildcards; file: URLs are not
   affected). A bare string, or an entry with a path or a port, is rejected.
+* Fetcher.check_host(url) applies the host policy to a URL without making a
+  request (HostNotAllowed when refused), and minideblib.repo.release gains
+  is_not_found(err): whether a FetchError means HTTP 404 or a missing
+  file:// file.
 * Fetcher.get() and Fetcher.exists() take an optional per-call CancelToken
   (token=) and a time.monotonic() deadline (deadline=), and the new
   Fetcher.scope(token=, deadline=) context manager applies them to every

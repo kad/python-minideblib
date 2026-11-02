@@ -51,6 +51,24 @@ def test_read_missing(tmp_path):
         pkg.read("nope")
 
 
+def test_read_max_size(tmp_path):
+    pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, FILES)))
+    assert pkg.read("usr/bin/x", max_size=len(FILES["usr/bin/x"])) == FILES["usr/bin/x"]
+    with pytest.raises(deb.DebMemberTooLargeError):
+        pkg.read("usr/bin/x", max_size=len(FILES["usr/bin/x"]) - 1)
+    assert issubclass(deb.DebMemberTooLargeError, deb.DebSizeLimitError)
+    with pytest.raises(deb.MissingMemberError):
+        pkg.read("nope", max_size=10)
+
+
+def test_files_max_entries(tmp_path):
+    pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, FILES)))
+    total = len(pkg.files())
+    assert len(pkg.files(max_entries=total)) == total
+    with pytest.raises(deb.DebSizeLimitError):
+        pkg.files(max_entries=total - 1)
+
+
 def test_extract_all_and_subset(tmp_path):
     pkg = deb.DebPackage.open(write(tmp_path, make_deb(CONTROL, FILES)))
     d1 = tmp_path / "all"

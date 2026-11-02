@@ -59,7 +59,8 @@ Decisions where the MCP and JSON-RPC texts leave a choice:
   carries the result twice, as ``content`` text and as
   ``structuredContent``, so the usable payload is about half the cap.
 * **Deadlines and load**: each call runs in its own daemon thread; the
-  worker waits for it until ``deadline = time.monotonic() + call_timeout``.
+  worker waits for it until ``deadline = time.monotonic() + call_timeout``
+  (the tool's own :attr:`Tool.timeout` instead, when it has one).
   A call still running then is cancelled, answered with an ``isError``
   result ("tool call timed out after N s"), its id is freed and its late
   result dropped; while that thread is still alive every new or queued
@@ -203,6 +204,8 @@ class Tool:
     destructive: bool = False
     #: human readable name; default: the name with spaces, capitalised
     title: str | None = None
+    #: seconds this tool's calls may run (default: the server's ``call_timeout``)
+    timeout: float | None = None
 
     @property
     def display_title(self) -> str:
@@ -485,6 +488,7 @@ class McpServer:
         self._broken = False
         self._lock = threading.Lock()
         self._pending: dict[_Key, CancelToken] = {}
+        self._queued = 0  # jobs in the queue not yet taken by the worker (even if cancelled)
         self._jobs: queue.Queue[_Job | None] = queue.Queue()
         self._served = False
         #: the running call's token and thread
@@ -773,11 +777,13 @@ class McpServer:
                 raise _RpcError(INVALID_REQUEST, "Invalid Request: id already in use")
             if self._stuck_alive():
                 return _error_result(_BUSY_STUCK)
-            if len(self._pending) >= self._max_queued:
+            if len(self._pending) >= self._max_queued or self._queued >= self._max_queued:
                 return _error_result(
-                    f"server busy: {len(self._pending)} calls pending; wait for results"
+                    f"server busy: {max(len(self._pending), self._queued)} calls pending; "
+                    "wait for results"
                 )
             self._pending[key] = token
+            self._queued += 1
         self._jobs.put(_Job(request_id, tool, arguments, token))
         return None
 
@@ -793,6 +799,8 @@ class McpServer:
             job = jobs.get()
             if job is None:
                 return
+            with self._lock:
+                self._queued -= 1
             try:
                 self._run(job)
             except BaseException:
@@ -816,7 +824,8 @@ class McpServer:
         if busy:
             result = _error_result(_BUSY_STUCK)
         else:
-            deadline = time.monotonic() + self._call_timeout
+            limit = self._limit(job.tool)
+            deadline = time.monotonic() + limit
             box: list[dict[str, object]] = []
 
             def call() -> None:
@@ -838,9 +847,9 @@ class McpServer:
             if thread.is_alive():
                 job.token.cancel()
                 self._log.warning(
-                    "tool %s still running after %g s; abandoned", job.tool.name, self._call_timeout
+                    "tool %s still running after %g s; abandoned", job.tool.name, limit
                 )
-                result = _error_result(f"tool call timed out after {self._call_timeout:g} s")
+                result = _error_result(f"tool call timed out after {limit:g} s")
             elif box:
                 result = box[0]
             else:
@@ -861,6 +870,10 @@ class McpServer:
             data = _encode({"jsonrpc": "2.0", "id": job.request_id, "result": replacement})
         self._write(data)
 
+    def _limit(self, tool: Tool) -> float:
+        """Seconds a call of *tool* may run."""
+        return self._call_timeout if tool.timeout is None else tool.timeout
+
     def _invoke(self, job: _Job, deadline: float) -> dict[str, object]:
         tool = job.tool
         try:
@@ -876,7 +889,7 @@ class McpServer:
                 return _error_result("cancelled")
             if time.monotonic() >= deadline:
                 self._log.warning("tool %s timed out", tool.name, exc_info=True)
-                return _error_result(f"tool call timed out after {self._call_timeout:g} s")
+                return _error_result(f"tool call timed out after {self._limit(tool):g} s")
             self._log.exception("tool %s failed", tool.name)
             return _error_result(f"internal error in tool {tool.name}")
         if not isinstance(value, dict):

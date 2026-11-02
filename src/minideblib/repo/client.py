@@ -53,9 +53,9 @@ from minideblib.repo.release import (
     IndexFile,
     IndexKind,
     Release,
-    _not_found,
     dists_url,
     fetch_release,
+    is_not_found,
     is_unsafe_path,
     select_indices,
 )
@@ -658,7 +658,7 @@ class RepoClient:
             try:
                 self._releases[key] = fetch_release(self.fetcher, entry.uri, entry.suite)
             except FetchError as e:
-                if not _not_found(e):
+                if not is_not_found(e):
                     raise
                 self._releases[key] = e
         cached = self._releases[key]
@@ -689,7 +689,7 @@ class RepoClient:
             try:
                 out.append((entry, self._release(entry)))
             except FetchError as e:
-                if not _not_found(e):
+                if not is_not_found(e):
                     raise
                 missing.append((entry, e))
         if not out:
@@ -1069,7 +1069,7 @@ class RepoClient:
                 try:
                     data = fetch_index(self.fetcher, entry.uri, rel, cand, verify=self.verify)
                 except FetchError as e:
-                    if not _not_found(e):
+                    if not is_not_found(e):
                         raise
                     log.debug("%s missing, trying next candidate", redact_url(e.url))
                     continue
@@ -1152,7 +1152,7 @@ class RepoClient:
                     self._keep(out, SourceRecord(para, suite, display, base_url=base))
         return out
 
-    def fetch_dsc(self, record: SourceRecord) -> Dsc:
+    def fetch_dsc(self, record: SourceRecord, *, verify: bool | None = None) -> Dsc:
         """Download and parse the ``.dsc`` of *record*.
 
         The bytes are checked against the strongest hash the ``Sources``
@@ -1161,13 +1161,16 @@ class RepoClient:
         at all, raises :class:`~minideblib.repo.release.HashMismatch` unless the
         client was built with ``verify=False``. The OpenPGP signature of the
         ``.dsc`` is not verified. :class:`RepoError` if no ``.dsc`` is listed.
+
+        *verify* overrides the client's setting for this fetch (``True`` keeps
+        the hash check even on a client built with ``verify=False``).
         """
         name, url = record.dsc_name, record.dsc_url
         if name is None or url is None:
             raise RepoError(f"{record.name} {record.version}: no .dsc file listed")
         log.info("fetching %s", name)
         data = self.fetcher.get(url)
-        if self.verify:
+        if self.verify if verify is None else verify:
             _check_listed_hash(record.paragraph, name, data)
         return Dsc.parse(data)
 
@@ -1383,7 +1386,9 @@ class RepoClient:
             cands = _current_per_target(cands, wanted)
         plans: dict[tuple[str, ...], DownloadPlan] = {}
         for r in cands:
-            spec = FileSpec(posixpath.basename(r.filename), r.url, r.size, r.strongest_hash)
+            spec = FileSpec(
+                posixpath.basename(r.filename), r.url, _size_or_none(r.size), r.strongest_hash
+            )
             # the same file listed in several indices (or mirrors) is planned once
             key = (r.architecture, r.component, str(r.version), r.filename, *spec.hashes.values())
             if key not in plans:
@@ -1541,7 +1546,7 @@ class RepoClient:
             try:
                 recs = self._packages(suite, None, None, components, architectures)
             except FetchError as e:
-                if not _not_found(e):
+                if not is_not_found(e):
                     raise
                 for entry in self._entries(suite):
                     cached = self._releases.get((entry.uri, entry.suite))

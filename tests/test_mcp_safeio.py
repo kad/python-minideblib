@@ -733,25 +733,63 @@ def test_world_writable_subdir_component_refused(root: WriteRoot, tmp_path: Path
         os.chmod(d, 0o700)
 
 
-def test_post_link_mismatch_removes_published_name(
+def test_post_link_mismatch_leaves_the_other_writers_file(
     root: WriteRoot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     nf = root.create_file("a.deb")
     nf.file.write(b"x")
     real_stat = os.stat
+    swapped = []
 
     def fake_stat(path: str, *a: Any, **kw: Any) -> os.stat_result:
-        info = real_stat(path, *a, **kw)
-        if path == "a.deb":
-            fields = list(info)
-            fields[stat.ST_INO] += 1
-            return os.stat_result(fields)
-        return info
+        if path == "a.deb" and not swapped:
+            # another writer replaces the name right after our link
+            swapped.append(True)
+            os.unlink(path, dir_fd=kw.get("dir_fd"))
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=kw.get("dir_fd"))
+            os.write(fd, b"theirs")
+            os.close(fd)
+        return real_stat(path, *a, **kw)
 
     monkeypatch.setattr(safeio.os, "stat", fake_stat)
     with pytest.raises(WriteRootError, match="replaced while publishing"):
         nf.commit()
     monkeypatch.undo()
+    # their file is untouched, our temporary link is gone
+    assert [p.name for p in tmp_path.iterdir()] == ["a.deb"]
+    assert (tmp_path / "a.deb").read_bytes() == b"theirs"
+
+
+@pytest.mark.parametrize("failing", ["unlink", "fsync"])
+def test_post_link_failure_leaves_nothing_published(
+    root: WriteRoot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    nf = root.create_file("a.deb")
+    nf.file.write(b"x")
+    temp = nf.temp_name
+    real_unlink, real_fsync = os.unlink, os.fsync
+    fsyncs: list[int] = []
+    failed: list[bool] = []
+
+    def fake_unlink(path: str, *a: Any, **kw: Any) -> None:
+        if failing == "unlink" and path == temp and not failed:
+            failed.append(True)  # fail only the first unlink of the temporary name
+            raise OSError(errno.EIO, "boom")
+        real_unlink(path, *a, **kw)
+
+    def fake_fsync(fd: int) -> None:
+        fsyncs.append(fd)
+        # the first fsync is the file's, the second the directory's
+        if failing == "fsync" and len(fsyncs) == 2:
+            raise OSError(errno.EIO, "boom")
+        real_fsync(fd)
+
+    monkeypatch.setattr(safeio.os, "unlink", fake_unlink)
+    monkeypatch.setattr(safeio.os, "fsync", fake_fsync)
+    with pytest.raises(OSError, match="boom"):
+        nf.commit()
+    monkeypatch.undo()
+    assert not (tmp_path / "a.deb").exists()
     assert list(tmp_path.iterdir()) == []
 
 

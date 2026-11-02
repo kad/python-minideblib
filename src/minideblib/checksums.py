@@ -24,7 +24,7 @@ import logging
 import os
 import re
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import NamedTuple
 
 from minideblib.errors import MinidebError
@@ -158,6 +158,8 @@ def verify_file(
     size: int,
     algs: Mapping[str, str],
     error: type[Exception] | None = None,
+    *,
+    progress: Callable[[], None] | None = None,
 ) -> None:
     """Check that *path* is a regular file of *size* bytes matching *algs*.
 
@@ -171,6 +173,9 @@ def verify_file(
     file (the :class:`OSError` is chained), anything but a regular file
     (a final symlink is never followed), a wrong size (found before any
     content is read) or the first digest that differs, in *algs* order.
+
+    *progress*, when given, is called before every read; an exception it
+    raises (cancellation, a deadline) propagates unchanged.
     """
     fail: type[Exception] = ChecksumError if error is None else error
     shown = os.fspath(path)
@@ -211,6 +216,8 @@ def verify_file(
         total = 0
         # read at most one byte past the expected end, enough to notice growth
         while total <= size:
+            if progress is not None:
+                progress()
             try:
                 chunk = handle.read(min(_CHUNK_SIZE, size + 1 - total))
             except OSError as exc:

@@ -607,3 +607,21 @@ def test_file_grown_during_read(tmp_path, monkeypatch, length):
     monkeypatch.setattr(builtins, "open", lambda *a, **k: _GrowingReader(real(*a, **k), p))
     with pytest.raises(Boom, match="size changed while reading"):
         verify_file(p, length, expected, Boom)
+
+
+def test_verify_file_progress_is_called_before_each_read_and_may_abort(tmp_path: Path) -> None:
+    f = tmp_path / "f"
+    f.write_bytes(b"abc")
+    sha = hashlib.sha256(b"abc").hexdigest()
+    calls: list[int] = []
+    verify_file(f, 3, {"sha256": sha}, progress=lambda: calls.append(1))
+    assert calls
+
+    class Stop(Exception):
+        pass
+
+    def stop() -> None:
+        raise Stop
+
+    with pytest.raises(Stop):
+        verify_file(f, 3, {"sha256": sha}, progress=stop)
